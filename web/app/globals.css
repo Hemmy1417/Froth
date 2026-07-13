@@ -47,7 +47,9 @@ html, body {
   color: var(--body);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  /* clip, not hidden: hidden creates a scroll container and silently breaks
+     every position: sticky descendant (the header stopped sticking) */
+  overflow-x: clip;
 }
 
 /* ── type ───────────────────────────────────────────────────────────────── */
@@ -124,7 +126,7 @@ textarea.field { resize: vertical; min-height: 4.5rem; }
 .prob-pct { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.86rem; width: 44px; text-align: right; color: var(--ink); }
 
 /* ── the board strip (static — the tape does not crawl here) ────────────── */
-.tape { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--s1); overflow-x: auto; scrollbar-width: none; }
+.tape { border-bottom: 1px solid var(--line); background: var(--bg); overflow-x: auto; scrollbar-width: none; }
 .tape::-webkit-scrollbar { display: none; }
 .tape-track { display: inline-flex; gap: 2rem; white-space: nowrap; padding: 0.5rem 1rem; }
 .tape-item { font-family: var(--font-mono); font-size: 0.7rem; color: var(--body); display: inline-flex; gap: 0.5rem; align-items: center; }

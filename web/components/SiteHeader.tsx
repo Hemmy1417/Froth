@@ -9,7 +9,7 @@ export function SiteHeader() {
   return (
     <header
       className="sticky top-0 z-50 flex items-center justify-between px-4 lg:px-7 py-3"
-      style={{ background: "rgba(255,253,248,0.88)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--line)" }}
+      style={{ background: "var(--s1)", borderBottom: "1px solid var(--line)" }}
     >
       <Link href="/" className="flex items-center gap-2.5">
         <span className="grid place-items-center" style={{ width: 26, height: 26, borderRadius: 7, background: "var(--aqua)" }}>
@@ -18,7 +18,7 @@ export function SiteHeader() {
         <span className="display text-lg" style={{ letterSpacing: "-0.02em" }}>Froth</span>
       </Link>
 
-      <nav className="hidden sm:flex items-center gap-6">
+      <nav className="hidden md:flex items-center gap-5">
         <Link href="/" className="btn-link">Markets</Link>
         <Link href="/parlays" className="btn-link">Parlays</Link>
         <Link href="/portfolio" className="btn-link">Portfolio</Link>
@@ -29,7 +29,7 @@ export function SiteHeader() {
       <div className="flex items-center gap-3">
         {address ? (
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline mono text-xs ink tabular">{formatGen(balanceWei)} GEN</span>
+            <span className="hidden lg:inline mono text-xs ink tabular">{formatGen(balanceWei)} GEN</span>
             <button onClick={disconnect} className="btn-ghost" title={address} style={{ padding: "0.5rem 0.9rem", fontSize: "0.8rem" }}>
               <span className="dot live-dot" /> {shortAddr(address)}
             </button>
