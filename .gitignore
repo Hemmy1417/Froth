@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+out/
+*.tsbuildinfo
+.env
+.env.local
+.env*.local
+web/.env*.local
+__pycache__/
+.pytest_cache/
+.venv/
+.claude/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/*
+  Froth — a retro-futurist live-tape betting terminal. Blue-black ground,
+  effervescent aqua brand, side-coded semantics (YES mint / NO coral) + a hot
+  amber for trending. Display face Unbounded (bubbly, on-theme), data in
+  JetBrains Mono. Committed dark — a terminal is a dark world.
+*/
+
+:root {
+  --bg: #08090f;         /* ground */
+  --s1: #10121b;         /* cards */
+  --s2: #171a26;         /* raised */
+  --s3: #1f2331;         /* hover / chips */
+  --line: #242838;
+  --line-hot: #3a4056;
+
+  --ink: #eef1f7;
+  --body: #a2a7b8;
+  --muted: #6b7185;
+  --faint: #4b5064;
+
+  --aqua: #22e0d6;       /* brand / live / effervescent */
+  --aqua-dim: #17a89f;
+  --aqua-soft: rgba(34, 224, 214, 0.1);
+
+  --yes: #35e59f;        /* side YES */
+  --no: #ff5c7a;         /* side NO */
+  --hot: #ffb84d;        /* trending / hot */
+  --win: #35e59f;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --font-display: var(--font-unbounded), system-ui, sans-serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--body);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(46rem 26rem at 8% -6%, rgba(34,224,214,0.07), transparent 60%),
+    radial-gradient(40rem 26rem at 100% 4%, rgba(255,92,122,0.05), transparent 58%);
+}
+
+/* ── type ───────────────────────────────────────────────────────────────── */
+.display { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.01em; line-height: 1.0; color: var(--ink); }
+.eyebrow { font-family: var(--font-mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.18em; color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.ink { color: var(--ink); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.tabular { font-variant-numeric: tabular-nums; }
+.body-strong { color: var(--ink); font-weight: 600; }
+
+/* ── surfaces ───────────────────────────────────────────────────────────── */
+.card { background: var(--s1); border: 1px solid var(--line); border-radius: var(--radius); transition: border-color .16s ease, transform .16s ease; }
+.card-hover:hover, a.card:hover { border-color: var(--line-hot); transform: translateY(-2px); }
+.raised { background: var(--s2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+
+/* ── buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  font-family: var(--font-body); font-weight: 700; font-size: 0.86rem;
+  padding: 0.58rem 1.1rem; border-radius: 999px; border: none; cursor: pointer;
+  transition: all 0.15s ease; white-space: nowrap;
+  background: var(--aqua); color: #04211f; box-shadow: 0 0 22px -8px var(--aqua);
+}
+.btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-ghost {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  font-family: var(--font-body); font-weight: 700; font-size: 0.86rem;
+  padding: 0.58rem 1.1rem; border-radius: 999px; cursor: pointer; transition: all 0.15s ease;
+  background: var(--s3); color: var(--ink); border: 1px solid var(--line-hot);
+}
+.btn-ghost:hover { border-color: var(--aqua-dim); }
+.btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-yes { background: var(--yes); color: #042318; box-shadow: 0 0 20px -9px var(--yes); }
+.btn-no  { background: var(--no);  color: #2a0710; box-shadow: 0 0 20px -9px var(--no); }
+.btn-link { font-family: var(--font-mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); background: none; border: none; cursor: pointer; text-decoration: none; transition: color .15s; }
+.btn-link:hover { color: var(--aqua); }
+
+/* ── inputs ─────────────────────────────────────────────────────────────── */
+.field {
+  width: 100%; background: var(--s2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--ink); font-family: var(--font-body); font-size: 0.92rem; padding: 0.66rem 0.85rem;
+  transition: border-color .15s ease;
+}
+.field:focus { outline: none; border-color: var(--aqua); }
+.field::placeholder { color: var(--faint); }
+textarea.field { resize: vertical; min-height: 4.5rem; }
+
+/* ── chips ──────────────────────────────────────────────────────────────── */
+.chip { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--font-mono); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.09em; padding: 0.24rem 0.55rem; border-radius: 999px; background: var(--s3); color: var(--body); border: 1px solid var(--line); }
+.ticker { font-family: var(--font-mono); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.02em; color: var(--aqua); padding: 0.2rem 0.5rem; border-radius: 6px; background: var(--aqua-soft); border: 1px solid rgba(34,224,214,0.25); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.live-dot { background: var(--aqua); box-shadow: 0 0 8px var(--aqua); animation: pulse 1.3s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+.st-live     { color: var(--aqua); }
+.st-resolving{ color: var(--hot); }
+.st-settled  { color: var(--win); }
+.st-refund   { color: var(--muted); }
+
+/* ── odds bar ───────────────────────────────────────────────────────────── */
+.odds { height: 34px; border-radius: 9px; overflow: hidden; display: flex; border: 1px solid var(--line); background: var(--s2); }
+.odds > .seg { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-family: var(--font-mono); font-weight: 700; font-size: 0.72rem; transition: width .5s cubic-bezier(.4,0,.2,1); min-width: 0; overflow: hidden; }
+.seg-yes { background: linear-gradient(90deg, rgba(53,229,159,0.22), rgba(53,229,159,0.08)); color: var(--yes); }
+.seg-no  { background: linear-gradient(270deg, rgba(255,92,122,0.22), rgba(255,92,122,0.08)); color: var(--no); }
+.seg-neutral { background: var(--s3); color: var(--muted); }
+
+/* ── ticker tape ────────────────────────────────────────────────────────── */
+.tape { overflow: hidden; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(8,9,15,0.7); }
+.tape-track { display: inline-flex; gap: 2.4rem; white-space: nowrap; padding: 0.5rem 0; animation: marquee 38s linear infinite; will-change: transform; }
+.tape-item { font-family: var(--font-mono); font-size: 0.72rem; color: var(--body); display: inline-flex; gap: 0.5rem; align-items: center; }
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* ── misc ───────────────────────────────────────────────────────────────── */
+.link { color: var(--aqua); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.hrule { height: 1px; background: var(--line); border: none; }
+.scroll-x { display: flex; gap: 0.5rem; overflow-x: auto; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fade-in .35s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tape-track, .live-dot, .fade-in { animation: none; }
+  .card-hover:hover, a.card:hover { transform: none; }
+}
