@@ -54,6 +54,20 @@ export type Stats = {
   fees_paid_wei: string;
   parlay_reserve_wei: string;
   parlay_exposure_wei: string;
+  total_reserve_shares: string;
+  reserve_nav_wei: string;
+  reserve_share_price_wad: string;
+};
+
+export type ReservePosition = {
+  address: string;
+  shares: string;
+  total_reserve_shares: string;
+  share_of_reserve_bps: number;
+  current_value_wei: string;
+  net_seeded_wei: string;
+  earned_edge_wei: string;
+  reserve_nav_wei: string;
 };
 
 export type ParlayLeg = { market_id: string; option: number; odds_pct: number };
@@ -97,6 +111,7 @@ const EMPTY_STATS: Stats = {
   season: 1, total_markets: 0, total_open: 0, total_settled: 0, total_volume: "0", total_appeals: 0,
   total_parlays: 0, total_traders: 0, escrowed_wei: "0", paid_out_wei: "0", fees_paid_wei: "0",
   parlay_reserve_wei: "0", parlay_exposure_wei: "0",
+  total_reserve_shares: "0", reserve_nav_wei: "0", reserve_share_price_wad: "1000000000000000000",
 };
 
 export async function getStats(): Promise<Stats> {
@@ -139,13 +154,44 @@ export async function getDraft(address: string): Promise<Draft | null> {
   const raw = await read("get_draft", [address]);
   return raw ? (JSON.parse(raw) as Draft) : null;
 }
+export async function getReservePosition(address: string): Promise<ReservePosition | null> {
+  const raw = await read("get_reserve_position", [address]);
+  return raw ? (JSON.parse(raw) as ReservePosition) : null;
+}
 
 // ---- writes ----
 async function writeAndWait(client: Client, functionName: string, args: unknown[], value?: bigint) {
   const params: Record<string, unknown> = { address: CONTRACT_ADDRESS, functionName, args };
   if (value !== undefined) params.value = value;
   const hash = await client.writeContract(params);
-  await client.waitForTransactionReceipt({ hash, status: "ACCEPTED", interval: 4000, retries: 60 });
+  const receipt = await client.waitForTransactionReceipt({ hash, status: "ACCEPTED", interval: 4000, retries: 60 });
+  const status = String(receipt?.status ?? "").toUpperCase();
+  if (status.includes("UNDETERMINED") || status.includes("CANCELED")) {
+    throw new Error("Validators could not reach consensus — try again");
+  }
+  const lr = receipt?.consensus_data?.leader_receipt;
+  const r = Array.isArray(lr) ? lr[0] : lr;
+  if (r?.execution_result === "ERROR") {
+    // A clean gl.vm.UserError revert arrives with EMPTY stderr — its message
+    // rides in a rollback "payload" field. Walk the receipt for it, or every
+    // contract-level rejection is swallowed silently.
+    const payloads: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const walk = (o: any, d = 0) => {
+      if (!o || d > 8) return;
+      if (Array.isArray(o)) { o.forEach((x) => walk(x, d + 1)); return; }
+      if (typeof o === "object") {
+        if (typeof o.payload === "string" && o.payload && o.payload !== "exit_code 1") payloads.push(o.payload);
+        Object.values(o).forEach((v) => walk(v, d + 1));
+      }
+    };
+    walk(receipt);
+    const stderr: string = r?.genvm_result?.stderr ?? "";
+    const userErr = stderr.match(/UserError: (.+)/)?.[1];
+    const msg = userErr || payloads.sort((a, b) => b.length - a.length)[0] || "";
+    console.error("[Froth] contract execution error:", { functionName, payloads, stderr });
+    throw new Error((msg || "Contract execution error — see console").slice(0, 240));
+  }
   return asString(hash);
 }
 
@@ -168,6 +214,9 @@ export function postTake(client: Client, marketId: string, text: string): Promis
 }
 export function seedParlayReserve(client: Client, amountWei: bigint): Promise<string> {
   return writeAndWait(client, "seed_parlay_reserve", [], amountWei);
+}
+export function withdrawParlayReserve(client: Client, sharesToBurn: bigint): Promise<string> {
+  return writeAndWait(client, "withdraw_parlay_reserve", [sharesToBurn]);
 }
 export function placeParlay(client: Client, legs: { market_id: string; option: number }[], stakeWei: bigint): Promise<string> {
   return writeAndWait(client, "place_parlay", [JSON.stringify(legs)], stakeWei);
