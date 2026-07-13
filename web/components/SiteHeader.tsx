@@ -9,18 +9,19 @@ export function SiteHeader() {
   return (
     <header
       className="sticky top-0 z-50 flex items-center justify-between px-4 lg:px-7 py-3"
-      style={{ background: "rgba(8,9,15,0.82)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--line)" }}
+      style={{ background: "rgba(255,253,248,0.88)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--line)" }}
     >
       <Link href="/" className="flex items-center gap-2.5">
-        <span className="grid place-items-center" style={{ width: 26, height: 26, borderRadius: 8, background: "radial-gradient(circle at 30% 25%, var(--aqua), var(--aqua-dim))", boxShadow: "0 0 16px -4px var(--aqua)" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#04211f" }} />
+        <span className="grid place-items-center" style={{ width: 26, height: 26, borderRadius: 7, background: "var(--aqua)" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--s1)" }} />
         </span>
         <span className="display text-lg" style={{ letterSpacing: "-0.02em" }}>Froth</span>
       </Link>
 
       <nav className="hidden sm:flex items-center gap-6">
-        <Link href="/" className="btn-link">Feed</Link>
+        <Link href="/" className="btn-link">Markets</Link>
         <Link href="/parlays" className="btn-link">Parlays</Link>
+        <Link href="/portfolio" className="btn-link">Portfolio</Link>
         <Link href="/new" className="btn-link">Open market</Link>
         <Link href="/leaderboard" className="btn-link">Leaderboard</Link>
       </nav>

@@ -10,8 +10,8 @@ export function TickerTape() {
   }, []);
 
   if (markets.length === 0) return null;
-  // duplicate the list so the marquee loops seamlessly at -50%
-  const items = [...markets, ...markets];
+  // a static board strip — scannable at a glance, scrollable by hand
+  const items = markets.slice(0, 12);
 
   return (
     <div className="tape">

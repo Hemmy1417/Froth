@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Unbounded, Inter, JetBrains_Mono } from "next/font/google";
+import { Schibsted_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet";
 import { SiteHeader } from "@/components/SiteHeader";
 import { TickerTape } from "@/components/TickerTape";
 import { ParlaySlipProvider } from "@/components/ParlaySlip";
 
-const unbounded = Unbounded({ subsets: ["latin"], variable: "--font-unbounded", display: "swap", weight: ["600", "700", "800"] });
+const grotesk = Schibsted_Grotesk({ subsets: ["latin"], variable: "--font-grotesk", display: "swap", weight: ["500", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${unbounded.variable} ${inter.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={`${grotesk.variable} ${inter.variable} ${jetbrains.variable}`}>
       <body>
         <WalletProvider>
           <ParlaySlipProvider>

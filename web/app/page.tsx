@@ -13,6 +13,7 @@ export default function Feed() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [board, setBoard] = useState<Trader[]>([]);
   const [cat, setCat] = useState<string>("all");
+  const [q, setQ] = useState("");
   const [tickerDraft, setTickerDraft] = useState("");
 
   useEffect(() => {
@@ -21,7 +22,12 @@ export default function Feed() {
     getLeaderboard(6).then((b) => setBoard([...b].sort((a, z) => Number(BigInt(z.winnings_wei || "0") - BigInt(a.winnings_wei || "0"))))).catch(() => {});
   }, []);
 
-  const shown = useMemo(() => (cat === "all" ? markets : markets.filter((m) => m.category === cat)), [markets, cat]);
+  const shown = useMemo(() => {
+    let out = cat === "all" ? markets : markets.filter((m) => m.category === cat);
+    const needle = q.trim().toLowerCase();
+    if (needle) out = out.filter((m) => m.ticker.toLowerCase().includes(needle) || m.question.toLowerCase().includes(needle));
+    return out;
+  }, [markets, cat, q]);
   const live = markets.filter((m) => m.status === "OPEN");
 
   function drop() {
@@ -31,15 +37,15 @@ export default function Feed() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 lg:px-6 py-6">
-      {/* drop-a-ticker hero */}
-      <section className="card p-5 sm:p-6 mb-5 fade-in" style={{ background: "linear-gradient(120deg, rgba(34,224,214,0.06), var(--s1) 55%)", borderColor: "var(--line-hot)" }}>
-        <p className="eyebrow mb-2">Fast takes · crowded sides · clean payouts</p>
+      {/* open-a-market hero */}
+      <section className="card p-5 sm:p-6 mb-5 fade-in" style={{ background: "linear-gradient(120deg, var(--aqua-soft), var(--s1) 55%)", borderColor: "var(--line-hot)" }}>
+        <p className="eyebrow mb-2">Sentiment, priced in public</p>
         <h1 className="display" style={{ fontSize: "clamp(24px, 3.6vw, 40px)", lineHeight: 1.04 }}>
-          Drop a <span style={{ color: "var(--aqua)" }}>$ticker</span>, open a market.
+          Open a market on <span style={{ color: "var(--aqua)" }}>anything</span>.
         </h1>
         <p className="body mt-2.5 text-sm" style={{ maxWidth: "58ch" }}>
-          Anyone opens a market. The crowd picks a side. A GenLayer validator panel settles it from pinned
-          sources — no oracle, no house edge.
+          Name a ticker, pin the sources, and let the crowd price it. A GenLayer validator
+          panel reads the pinned sources and settles — no oracle, no house edge, appeals on-chain.
         </p>
         <div className="flex gap-2 mt-4 max-w-lg">
           <input
@@ -69,6 +75,15 @@ export default function Feed() {
       <div className="grid lg:grid-cols-[1fr_300px] gap-5 items-start">
         {/* feed */}
         <div>
+          <div className="flex gap-2 mb-3">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search markets — ticker or question…"
+              className="field"
+              style={{ maxWidth: 420 }}
+            />
+          </div>
           <div className="scroll-x mb-4">
             <Cat label="All" active={cat === "all"} onClick={() => setCat("all")} />
             {CATEGORIES.map((c) => (

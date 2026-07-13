@@ -70,6 +70,33 @@ export function OddsBar({ market, compact }: { market: Market; compact?: boolean
   );
 }
 
+// Probability-first outcome rows: label · track · big % — the number is the hero.
+export function OutcomeRows({ m, limit = 2 }: { m: Market; limit?: number }) {
+  const o = odds(m);
+  const settled = m.status === "SETTLED";
+  const rowColor = (i: number) => {
+    if (settled) return m.winning_option === i ? "var(--win)" : "var(--faint)";
+    if (m.options.length === 2) return i === 0 ? "var(--yes)" : "var(--no)";
+    return "var(--aqua)";
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      {m.options.slice(0, limit).map((opt, i) => (
+        <div key={i} className="prob-row">
+          <span className="mono text-[0.68rem]" style={{ width: 64, color: settled && m.winning_option === i ? "var(--win)" : "var(--body)" }}>
+            {opt}{settled && m.winning_option === i ? " ✓" : ""}
+          </span>
+          <span className="prob-track">
+            <span className="prob-fill" style={{ width: `${o[i]}%`, background: rowColor(i) }} />
+          </span>
+          <span className="prob-pct">{o[i]}%</span>
+        </div>
+      ))}
+      {m.options.length > limit && <span className="mono text-[0.6rem] faint">{m.options.length - limit} more sides</span>}
+    </div>
+  );
+}
+
 export function MarketCard({ m }: { m: Market }) {
   const cat = CATEGORY_META[m.category] ?? CATEGORY_META.other;
   return (
@@ -84,9 +111,9 @@ export function MarketCard({ m }: { m: Market }) {
       <p className="body-strong text-[0.95rem] leading-snug" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 40 }}>
         {m.question}
       </p>
-      <OddsBar market={m} compact />
+      <OutcomeRows m={m} />
       <div className="flex items-center justify-between mono text-[0.62rem] muted">
-        <span>{genFromWei(m.total_pool)} GEN pool</span>
+        <span>{genFromWei(m.total_pool)} GEN vol</span>
         <span>{m.id}</span>
       </div>
     </Link>
