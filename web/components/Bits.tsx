@@ -44,13 +44,18 @@ export function OddsBar({ market, compact }: { market: Market; compact?: boolean
   const settled = market.status === "SETTLED";
   const win = market.winning_option;
   if (market.options.length === 2) {
+    // On a settled market the widths stay as the final pool split (that is the
+    // payout math), but only the winner keeps its color — the loser goes quiet.
+    const segClass = (i: number) =>
+      settled ? (win === i ? (i === 0 ? "seg seg-yes" : "seg seg-no") : "seg seg-neutral") : i === 0 ? "seg seg-yes" : "seg seg-no";
+    const label = (i: number) => `${market.options[i]}${settled && win === i ? " ✓" : ""}`;
     return (
       <div className="odds" style={compact ? { height: 30 } : undefined}>
-        <div className="seg seg-yes" style={{ width: `${o[0]}%` }}>
-          <span>{market.options[0]}</span><span>{o[0]}%</span>
+        <div className={segClass(0)} style={{ width: `${o[0]}%` }}>
+          <span>{label(0)}</span><span>{o[0]}%</span>
         </div>
-        <div className="seg seg-no" style={{ width: `${o[1]}%` }}>
-          <span>{o[1]}%</span><span>{market.options[1]}</span>
+        <div className={segClass(1)} style={{ width: `${o[1]}%` }}>
+          <span>{o[1]}%</span><span>{label(1)}</span>
         </div>
       </div>
     );
@@ -71,9 +76,13 @@ export function OddsBar({ market, compact }: { market: Market; compact?: boolean
 }
 
 // Probability-first outcome rows: label · track · big % — the number is the hero.
+// Live markets show the crowd's price; a SETTLED market's share is worth 100 or 0,
+// so rows settle to those values (the pre-settle split stayed as-is once looked
+// like the gray loser "beating" the checkmarked winner).
 export function OutcomeRows({ m, limit = 2 }: { m: Market; limit?: number }) {
   const o = odds(m);
   const settled = m.status === "SETTLED";
+  const pct = (i: number) => (settled ? (m.winning_option === i ? 100 : 0) : o[i]);
   const rowColor = (i: number) => {
     if (settled) return m.winning_option === i ? "var(--win)" : "var(--faint)";
     if (m.options.length === 2) return i === 0 ? "var(--yes)" : "var(--no)";
@@ -87,9 +96,9 @@ export function OutcomeRows({ m, limit = 2 }: { m: Market; limit?: number }) {
             {opt}{settled && m.winning_option === i ? " ✓" : ""}
           </span>
           <span className="prob-track">
-            <span className="prob-fill" style={{ width: `${o[i]}%`, background: rowColor(i) }} />
+            <span className="prob-fill" style={{ width: `${pct(i)}%`, background: rowColor(i) }} />
           </span>
-          <span className="prob-pct">{o[i]}%</span>
+          <span className="prob-pct" style={settled && m.winning_option !== i ? { color: "var(--faint)" } : undefined}>{pct(i)}%</span>
         </div>
       ))}
       {m.options.length > limit && <span className="mono text-[0.6rem] faint">{m.options.length - limit} more sides</span>}

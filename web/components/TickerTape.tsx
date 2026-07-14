@@ -18,12 +18,17 @@ export function TickerTape() {
       <div className="tape-track">
         {items.map((m, i) => {
           const o = odds(m);
-          const yes = o[0] ?? 50;
+          const settled = m.status === "SETTLED";
+          const winner = settled ? m.options[m.winning_option ?? 0] : null;
           return (
             <span className="tape-item" key={`${m.id}-${i}`}>
               <span className="ticker" style={{ padding: "0.1rem 0.4rem" }}>{m.ticker}</span>
               <span className="muted" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{m.question}</span>
-              <span style={{ color: "var(--yes)" }}>YES {yes}%</span>
+              {winner ? (
+                <span style={{ color: "var(--win)" }}>✓ {winner}</span>
+              ) : (
+                <span style={{ color: "var(--yes)" }}>YES {o[0] ?? 50}%</span>
+              )}
               <span className="faint">·</span>
               <span style={{ color: "var(--muted)" }}>{genFromWei(m.total_pool)} GEN</span>
             </span>
