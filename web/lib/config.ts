@@ -27,6 +27,31 @@ export function explorerTxUrl(hash: string): string {
 export const CATEGORIES = ["crypto", "sports", "culture", "politics", "other"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
+// Category sanity hint for hand-written takes. Purely advisory — the label
+// never affects settlement (only pinned sources + criteria do), so this is a
+// findability nudge, not a gate. Conservative on purpose: it only speaks when
+// the text has positive signal for another category and none for the chosen one.
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  crypto: ["btc", "eth", "sol", "doge", "bitcoin", "ethereum", "token", "coin", "crypto", "defi", "nft", "onchain", "blockchain", "airdrop", "halving", "binance", "coinbase", "stablecoin", "memecoin", "altcoin", "staking"],
+  sports: ["match", "game", "league", "cup", "championship", "playoff", "final", "team", "score", "goal", "nba", "nfl", "mlb", "fifa", "olympic", "tournament", "derby", "race", "fight", "ufc", "boxing", "season", "win the title"],
+  culture: ["movie", "film", "album", "song", "artist", "box office", "rotten tomatoes", "oscar", "grammy", "celebrity", "tv show", "series", "netflix", "concert", "tour", "fashion", "viral", "tiktok", "streamer"],
+  politics: ["election", "president", "senate", "congress", "vote", "poll", "minister", "parliament", "law", "bill", "tariff", "government", "mayor", "governor", "party", "candidate", "impeach", "treaty", "referendum"],
+};
+
+export function suggestCategory(text: string, chosen: string): Category | null {
+  const t = ` ${text.toLowerCase()} `;
+  if (t.trim().length < 8) return null;
+  const hits: Record<string, number> = {};
+  for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
+    hits[cat] = words.reduce((n, w) => n + (t.includes(w) ? 1 : 0), 0);
+  }
+  // stay silent unless the chosen label has zero evidence and another has some
+  if ((hits[chosen] ?? 0) > 0) return null;
+  const best = Object.entries(hits).sort((a, b) => b[1] - a[1])[0];
+  if (!best || best[1] === 0 || best[0] === chosen) return null;
+  return best[0] as Category;
+}
+
 export const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
   crypto: { label: "Crypto", emoji: "◎" },
   sports: { label: "Sports", emoji: "⚽" },

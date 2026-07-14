@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useWallet } from "@/lib/wallet";
-import { CATEGORIES, CATEGORY_META } from "@/lib/config";
+import { CATEGORIES, CATEGORY_META, suggestCategory } from "@/lib/config";
 import { createMarket, suggestMarket, getDraft } from "@/lib/froth";
 
 function NewMarketInner() {
@@ -29,6 +29,9 @@ function NewMarketInner() {
 
   const urlOk = (u: string) => /^https?:\/\/\S+/.test(u.trim());
   function setSrc(i: number, v: string) { setSources((s) => s.map((x, idx) => (idx === i ? v : x))); }
+
+  // advisory only — labels never affect settlement, but the right shelf helps traders find it
+  const catHint = useMemo(() => suggestCategory(`${ticker} ${question}`, category), [ticker, question, category]);
 
   async function draftWithAI() {
     if (!client) return connect().catch(() => {});
@@ -93,6 +96,17 @@ function NewMarketInner() {
               </button>
             ))}
           </div>
+          {catHint && (
+            <div className="raised p-2.5 mt-2 flex items-center gap-2 flex-wrap" style={{ borderColor: "var(--hot)" }}>
+              <span className="mono text-[0.66rem]" style={{ color: "var(--hot)" }}>
+                This take reads more like {CATEGORY_META[catHint].emoji} {CATEGORY_META[catHint].label}.
+                Labels don&apos;t affect settlement — but the right shelf helps traders find it.
+              </span>
+              <button onClick={() => setCategory(catHint)} className="btn-ghost" style={{ padding: "0.25rem 0.6rem", fontSize: "0.68rem" }}>
+                Use {CATEGORY_META[catHint].label}
+              </button>
+            </div>
+          )}
         </Field>
         <Field label="The take">
           <div className="flex items-center justify-between mb-2">
