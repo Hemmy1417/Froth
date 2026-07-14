@@ -1,12 +1,14 @@
 # Froth — fast, AI-settled sentiment markets on GenLayer
 
-> Drop a ticker, open a market, pick a side. Fast takes, crowded sides, clean payouts — settled by
-> a GenLayer validator panel reading the market's pinned sources. No oracle, no house edge.
+> Open a market on anything. The crowd prices it in public; a GenLayer validator panel reads the
+> pinned sources and settles it. No oracle, no house edge on markets, appeals on-chain.
 
-**Contract:** `0xD8C4bFcf413e03901E4B0DDBA846ec0a28f982C7` (GenLayer Studionet, chain 61999)
+**Contract:** `0x63164D5Dde8e1AEB08BC2B0e3dfc2B65755B5346` (GenLayer Studionet, chain 61999)
 
-A fud.markets-style product on the Delphi resolution engine: permissionless, instant, ticker-first
-prediction markets where the crowd bets parimutuel and a GenLayer panel settles the outcome.
+Permissionless, instant, ticker-first prediction markets on the Delphi resolution engine: the crowd
+bets parimutuel and a GenLayer panel settles the outcome. The frontend is an "open exchange ledger" —
+probability-first cards, portfolio, parlay desk — deliberately a daylight trading floor, not a neon
+terminal.
 
 ## How it works
 
@@ -37,10 +39,13 @@ prediction markets where the crowd bets parimutuel and a GenLayer panel settles 
 ## The 2026 toolkit
 
 - **Parlays / combo bets** — one stake across 2–5 legs, all must hit. Parimutuel can't price a parlay,
-  so it's the honest sportsbook model: fixed combined odds **underwritten by a parlay reserve** with an
-  **aggregate-exposure solvency guard** (the Bulwark/Kredo pattern). Anyone can `seed_parlay_reserve`;
-  losing stakes feed it, winning parlays draw from it, and the guard refuses any parlay it can't cover.
-  *(This is the one place with a house — the individual markets stay pure parimutuel, no edge.)*
+  so it's the honest sportsbook model: fixed combined odds **underwritten by a seeder-owned reserve
+  vault** with an **aggregate-exposure solvency guard**. Anyone who seeds the reserve gets **vault
+  shares** priced on worst-case NAV (reserve − open exposure): losing parlays raise the share price
+  (the house edge accrues to seeders pro-rata, automatically), winning parlays draw it down, and any
+  share-holder can withdraw their slice of the headroom at any time — the guard refuses any parlay,
+  and any withdrawal, the book can't cover. *(This is the one place with a house — and the house is
+  owned by whoever backs it. The individual markets stay pure parimutuel, no edge.)*
 - **AI market drafting** — `suggest_market(ticker)` has the validator panel draft a take + criteria +
   sources; advisory only, the creator confirms/edits and calls `create_market`.
 - **Conditional + series markets** — a market can start `PENDING`, gated on a parent market's outcome
@@ -49,17 +54,35 @@ prediction markets where the crowd bets parimutuel and a GenLayer panel settles 
 - **Social + seasons** — on-chain `post_take` comments per market, per-trader **points**, and an
   owner-rolled **season**.
 
+## Verified live on Studionet
+
+Two full MetaMask stress rounds against the deployed contract above:
+
+- **Reserve vault** — two wallets seeded shares (100% → 67/33 split); a doomed 2-leg parlay placed
+  against the book; escalate-style worst-case NAV visibly marked the positions down while the parlay
+  was open; the AI panel resolved both legs from the pinned feeds (HIGH confidence, resolver barred
+  from finalizing its own ruling); the lost stakes accrued to the share price; both seeders withdrew
+  principal + edge and the reserve drained to exactly zero.
+- **Markets + claims** — two markets (crypto / politics), both sides funded, settled Yes and No on
+  the pinned feeds; winners claimed via the portfolio's inline claim and via the market page; losing
+  wallets were shown the honest no-claim state; upheld appeal bonds forfeited into the winners' pools.
+
 ## Structure
 
 ```
 ├── contracts/froth.py          # the Intelligent Contract
-├── tests/direct/test_froth.py  # 18 direct-mode tests (pytest)
+├── tests/direct/test_froth.py  # 38 direct-mode tests (pytest)
 ├── gltest.config.yaml
-└── web/                        # frontend (in progress)
+└── web/                        # Next.js frontend (feed, market room, parlays desk,
+                                #   portfolio, leaderboard, profiles)
 ```
 
 ## Local development
 
 ```bash
 python -m pytest tests/direct -q
+
+cd web
+cp .env.example .env.local   # or set NEXT_PUBLIC_CONTRACT_ADDRESS
+npm install && npm run dev
 ```

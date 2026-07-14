@@ -10,7 +10,7 @@ export const CHAIN_NAME = CHAIN.name;
 export const GAS_SPONSORED = !IS_BRADBURY;
 
 export const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-  "0xD8C4bFcf413e03901E4B0DDBA846ec0a28f982C7") as `0x${string}`;
+  "0x63164D5Dde8e1AEB08BC2B0e3dfc2B65755B5346") as `0x${string}`;
 export const CONTRACT_CONFIGURED = /^0x[a-fA-F0-9]{40}$/.test(CONTRACT_ADDRESS);
 
 export const EXPLORER_URL = (
