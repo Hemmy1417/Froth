@@ -86,3 +86,11 @@ cd web
 cp .env.example .env.local   # or set NEXT_PUBLIC_CONTRACT_ADDRESS
 npm install && npm run dev
 ```
+
+## Signed writes
+
+Contract writes are signed by the **connected wallet's own EIP-1193 provider**: the
+wallet context builds the genlayer-js client with `createClient({ chain, account,
+provider })` and every write routes through it — never an implicit `window.ethereum`
+fallback. A repository-level test (`web/tests/signed-write.test.ts`) proves the
+write path routes `eth_sendTransaction` through that provider with the correct `from`.
