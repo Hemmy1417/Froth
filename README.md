@@ -26,6 +26,18 @@ These properties are inherited from the Delphi engine and enforced in the contra
 - **Solvency accounting.** Escrowed, paid, and fee balances are tracked on-chain; a settled or refunded market closes its books to exactly zero.
 - **Open-market exit.** Any position can be withdrawn in full while betting is live.
 
+## Trust model: pinned sources
+
+Settlement evidence in Froth is a set of public URLs, pinned at market creation. The trust model around them is explicit:
+
+- **Pinning prevents substitution, not mutation.** Once a market opens, nobody — creator included — can swap, add, or remove sources. The honest limitation: the *content* behind a pinned URL can still change between creation and settlement. Froth treats this as a visibility problem rather than pretending it away.
+- **Staking is informed consent.** The pinned sources are public on the market card before anyone bets. A participant who stakes on a market has seen — and accepted — the evidence it will settle on. Markets whose sources you do not trust are markets you do not bet on.
+- **Corroboration is required at creation.** The market form requires **2–3 sources spanning at least two independent domains**, so no market's evidence base is a single page one party controls. (This is enforced in the creation UI as a guardrail; the contract itself accepts any pinned set, so direct callers bypass it — which is why the next two layers exist.)
+- **Resolution is UNCLEAR-biased.** The panel settles only from the fetched sources, treats fetched text as material — never as instructions — and rules UNCLEAR (full refund of every stake) when sources conflict, are unreachable, or fail to clearly decide. Manipulated or vanished evidence collapses to a refund, not a stolen pool.
+- **A bonded appeal is the correction path.** Any armed ruling can be challenged before value moves, forcing a fresh read of the sources.
+
+The net effect: tampering with a pinned source cannot silently steal a pool — its best case is forcing a refund, and the appeal window puts a second read between any ruling and the money.
+
 ## Market features
 
 - **Ticker-first markets** across categories (`crypto`, `sports`, `culture`, `politics`, `other`)

@@ -16,7 +16,7 @@ function NewMarketInner() {
   const [question, setQuestion] = useState("");
   const [yes, setYes] = useState("Yes");
   const [no, setNo] = useState("No");
-  const [sources, setSources] = useState<string[]>([""]);
+  const [sources, setSources] = useState<string[]>(["", ""]);
   const [criteria, setCriteria] = useState("");
   const [fee, setFee] = useState("2");
   const [event, setEvent] = useState("");
@@ -28,6 +28,10 @@ function NewMarketInner() {
   const [err, setErr] = useState("");
 
   const urlOk = (u: string) => /^https?:\/\/\S+/.test(u.trim());
+  // Source-integrity guardrail (UI-enforced): a market's evidence should be
+  // corroborable, so the form requires >=2 sources on independent domains.
+  const domainOf = (u: string) =>
+    u.trim().toLowerCase().replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^www\./, "");
   function setSrc(i: number, v: string) { setSources((s) => s.map((x, idx) => (idx === i ? v : x))); }
 
   // advisory only — labels never affect settlement, but the right shelf helps traders find it
@@ -43,7 +47,11 @@ function NewMarketInner() {
       if (d) {
         if (d.question) setQuestion(d.question);
         if (d.criteria) setCriteria(d.criteria);
-        if (d.sources && d.sources.length) setSources(d.sources.slice(0, 3));
+        if (d.sources && d.sources.length) {
+          const drafted = d.sources.slice(0, 3);
+          while (drafted.length < 2) drafted.push("");   // guardrail: keep two fields
+          setSources(drafted);
+        }
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setDrafting(false); }
@@ -56,8 +64,9 @@ function NewMarketInner() {
     if (!ticker.trim()) return setErr("Add a ticker ($BTC, or a contract address).");
     if (question.trim().length < 8) return setErr("Write the take/question.");
     if (!yes.trim() || !no.trim()) return setErr("Both sides need a label.");
-    if (src.length < 1 || src.length > 3) return setErr("Pin 1–3 settlement sources.");
+    if (src.length < 2 || src.length > 3) return setErr("Pin 2–3 settlement sources — one URL is a lead, not corroboration.");
     if (!src.every(urlOk)) return setErr("Sources must be public http(s) links.");
+    if (new Set(src.map(domainOf)).size < 2) return setErr("Sources must span at least two independent domains.");
     if (criteria.trim().length < 8) return setErr("Add settlement criteria.");
     setBusy(true);
     try {
@@ -123,7 +132,7 @@ function NewMarketInner() {
             <input value={no} onChange={(e) => setNo(e.target.value)} className="field" style={{ borderColor: "rgba(255,92,122,0.4)" }} />
           </div>
         </Field>
-        <Field label="Pinned settlement sources (1–3, frozen)">
+        <Field label="Pinned settlement sources (2–3, independent domains, frozen)">
           <div className="flex flex-col gap-2">
             {sources.map((s, i) => (
               <input key={i} value={s} onChange={(e) => setSrc(i, e.target.value)} placeholder="https://coingecko.com/… (public, fetchable)" className="field mono text-sm" />
