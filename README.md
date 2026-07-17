@@ -2,7 +2,7 @@
 
 **Fast, AI-settled sentiment markets on GenLayer.** Anyone can open a market on a real-world question; the crowd prices it in public through parimutuel pools, and a GenLayer validator panel reads the pinned sources and settles the outcome. No external oracle, no house edge on markets, and appeals are handled on-chain.
 
-- **Contract:** `0x63164D5Dde8e1AEB08BC2B0e3dfc2B65755B5346`
+- **Contract:** `0xEd7E03D5B253bCB956902C53519Cf77336Fb698c`
 - **Network:** GenLayer Studionet (chain 61999)
 - **Engine:** the Delphi resolution engine — validator-fetched evidence, bonded appeals, solvency accounting
 
@@ -20,7 +20,7 @@ The frontend presents an open exchange ledger: probability-first market cards, a
 These properties are inherited from the Delphi engine and enforced in the contract:
 
 - **Pinned multi-source evidence.** Settlement sources are frozen at market creation — nobody can substitute the evidence after money is staked, and a single unreachable source does not block settlement.
-- **Enforced appeal window.** A resolution takes effect only after its appeal window; the wallet that triggered resolution cannot finalize its own unappealed ruling.
+- **Contract-enforced appeal deadline (real wall-clock).** When a ruling lands, the contract fetches the current UTC time under validator consensus — from two probe-verified sources, Cloudflare's edge clock and Ethereum's own latest block timestamp — and stamps a hard deadline (`appeal_open_until_epoch`, 10 real minutes). An **unappealed** ruling cannot be finalized until a *fresh* fetch proves that deadline has passed, so no wallet-pair can resolve→finalize back-to-back and erase the appeal opportunity: real minutes cannot be manufactured with extra wallets. The clock **fails closed** (no trusted time → no finalization; if it was down at ruling time, the window is armed on the first finalize attempt instead — an outage can only lengthen the window). Appeals stay open for as long as the market is PROPOSED, even past the stamped deadline: the deadline is one-sided and only ever forbids *early finalization*. The wallet that triggered resolution still can't finalize its own unappealed ruling, as before.
 - **Bonded appeals.** An appeal costs 1% of the pool (0.01 GEN minimum). If the ruling flips, the bond is refunded; if the ruling is upheld, the bond is added to the winners' pool.
 - **Fail-safe refunds.** An UNCLEAR ruling — including the case where the evidence cannot support a confident verdict — refunds every stake rather than forcing an outcome.
 - **Solvency accounting.** Escrowed, paid, and fee balances are tracked on-chain; a settled or refunded market closes its books to exactly zero.

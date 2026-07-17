@@ -1,4 +1,4 @@
-# v0.2.0
+# v0.3.0
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 # Froth — fast, AI-settled sentiment markets on GenLayer.
@@ -30,6 +30,27 @@ MAX_FEE_BPS = 500
 MAX_SOURCES = 3
 APPEAL_BOND_BPS = 100
 MIN_APPEAL_BOND_WEI = 10 ** 16
+
+# ── contract-enforced appeal deadline (judge feedback 2026-07-17) ────────────
+# An unappealed ruling must not be finalizable in the same breath it lands: the
+# old guard only stopped the RESOLVER's own wallet, so any second wallet could
+# resolve→finalize back-to-back and erase the appeal opportunity. resolve() now
+# stamps a real wall-clock deadline (fetched under validator consensus) and
+# finalize() refuses an unappealed market until a fresh fetch proves the
+# deadline has passed. Real minutes cannot be manufactured with extra wallets.
+APPEAL_WINDOW_SECONDS = 600     # 10 real minutes (production would use hours)
+
+# Keyless public UTC clocks, cross-checked against each other. Both PROBE-VERIFIED
+# from Studionet validators (2026-07-17), agreeing with true UTC to ~30s.
+# ⚠️ Do NOT re-add timeapi.io (serves time ~6 min BEHIND UTC) or worldtimeapi.org
+# (never loads from validators) — their disagreement trips the divergence guard
+# below on every call, making the clock read 0 forever. Probe first, always.
+TIME_SOURCES = [
+    "https://cloudflare.com/cdn-cgi/trace",
+    "https://eth.blockscout.com/api/v2/main-page/blocks",
+]
+MAX_CLOCK_DIVERGENCE = 300      # two readings further apart than this → distrust
+MIN_SANE_EPOCH = 1_700_000_000  # any parsed epoch below (~2023-11) is garbage
 CATEGORIES = ["crypto", "sports", "culture", "politics", "other"]
 MIN_PARLAY_LEGS = 2
 MAX_PARLAY_LEGS = 5
@@ -48,6 +69,50 @@ _DRAFT_PRINCIPLE = (
 
 
 # ------------------------------------------------------------------- helpers (deterministic)
+def _epoch_from_civil(y: int, m: int, d: int, hh: int, mm: int, ss: int) -> int:
+    """UTC civil date/time -> Unix epoch (Howard Hinnant's days_from_civil).
+    Pure integer math every validator reproduces — no library time, no locale."""
+    y = int(y); m = int(m); d = int(d)
+    yy = y - (1 if m <= 2 else 0)
+    era = (yy if yy >= 0 else yy - 399) // 400
+    yoe = yy - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + (d - 1)
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    days = era * 146097 + doe - 719468
+    return days * 86400 + int(hh) * 3600 + int(mm) * 60 + int(ss)
+
+
+def _epoch_from_iso(s: str) -> int:
+    """"2026-07-17T07:35:11.000000Z" -> epoch. UTC only; the Z suffix is assumed."""
+    s = str(s).strip()
+    date_part, _, rest = s.partition("T")
+    y, m, d = [int(x) for x in date_part.split("-")]
+    hh, mm, ss = [int(x) for x in rest.split(".")[0].replace("Z", "").split(":")[:3]]
+    return _epoch_from_civil(y, m, d, hh, mm, ss)
+
+
+def _parse_epoch_from_clock(url: str, raw: str) -> int:
+    """Unix epoch out of a clock source's response; 0 on any parse failure so the
+    caller just moves on to the next source.
+      - cloudflare trace -> text with a `ts=1710000000.123` line
+      - blockscout       -> JSON block list; [0].timestamp is Ethereum's latest
+        block time — a clock produced by a decentralised consensus (~13s fresh)"""
+    try:
+        text = raw if isinstance(raw, str) else str(raw)
+        if "cloudflare.com" in url:
+            for line in text.splitlines():
+                if line.startswith("ts="):
+                    return int(float(line[3:]))
+            return 0
+        if "blockscout.com" in url:
+            d = json.loads(text)
+            items = d if isinstance(d, list) else d.get("items", [])
+            return _epoch_from_iso(items[0]["timestamp"]) if items else 0
+        return 0
+    except Exception:
+        return 0
+
+
 def _is_url(u: str) -> bool:
     u = u.strip()
     return (u.startswith("http://") or u.startswith("https://")) and len(u) <= 2048
@@ -159,7 +224,11 @@ class Froth(gl.Contract):
     drafts: TreeMap[str, str]      # addr -> last AI-drafted market JSON
 
     def __init__(self, owner: Address) -> None:
-        self.owner = owner
+        # Deploy tooling may hand the owner in as a plain hex string (genlayer-js
+        # encodes constructor args as str); coerce so the typed storage field
+        # always receives a real Address — but never re-wrap one (GenVM crashes
+        # on Address(Address)). Proven failure mode on a sibling deploy.
+        self.owner = owner if isinstance(owner, Address) else Address(owner)
         self.season = u256(1)
         self.total_markets = u256(0)
         self.total_open = u256(0)
@@ -267,6 +336,39 @@ class Froth(gl.Contract):
 
     def _appeal_bond_wei(self, m: dict) -> int:
         return max(int(m["total_pool"]) * APPEAL_BOND_BPS // 10000, MIN_APPEAL_BOND_WEI)
+
+    def _utc_now(self) -> int:
+        """Current UTC epoch, fetched from the probe-verified public clocks under
+        a consensus principle. Returns 0 when no clock can be trusted — NEVER
+        raises — and finalize() fails closed on 0: without a trusted clock the
+        appeal window cannot be proven over, so finalization is refused, never
+        granted. Validators agree the epoch to within 300s."""
+        def read_clock() -> str:
+            cands = []
+            for url in TIME_SOURCES:
+                try:
+                    raw = gl.nondet.web.render(url, mode="text")
+                except Exception:
+                    continue
+                epoch = _parse_epoch_from_clock(url, raw)
+                if epoch > MIN_SANE_EPOCH:
+                    cands.append(epoch)
+            if len(cands) >= 2 and (max(cands) - min(cands)) > MAX_CLOCK_DIVERGENCE:
+                return "0"                       # a source is lying/stale → distrust
+            # Earliest corroborated reading: a conservative "now" can only ever
+            # EXTEND the appeal window — skew favours would-be appellants, never
+            # whoever is racing to finalize.
+            return str(min(cands)) if cands else "0"
+
+        principle = (
+            "Outputs are equivalent if both are integer UTC epoch seconds within "
+            "300 of each other (the value 0 means no reliable time was obtained)."
+        )
+        try:
+            got = int(str(gl.eq_principle.prompt_comparative(read_clock, principle)).strip() or "0")
+        except Exception:
+            return 0
+        return got if got > MIN_SANE_EPOCH else 0
 
     def _ruling_bucket(self, ruling: dict) -> str:
         return str(ruling.get("winning_option", "UNCLEAR"))
@@ -687,6 +789,13 @@ class Froth(gl.Contract):
         m["history"] = [{"round": "initial", "ruling": ruling}]
         m["resolver"] = str(gl.message.sender_address)
         m["status"] = "PROPOSED"
+        # Contract-enforced appeal deadline: stamp real wall-clock time so an
+        # unappealed ruling can never be finalized before bettors had a genuine
+        # window to appeal. If no clock can be trusted right now, stamp 0 — the
+        # deadline is then armed on the first finalize attempt instead, so an
+        # outage can only LENGTHEN the window, never erase it.
+        now = self._utc_now()
+        m["appeal_open_until_epoch"] = (now + APPEAL_WINDOW_SECONDS) if now > 0 else 0
         self._save(m)
         return json.dumps(m)
 
@@ -696,6 +805,11 @@ class Froth(gl.Contract):
         sender = str(gl.message.sender_address)
         if m["status"] != "PROPOSED":
             raise gl.vm.UserError("only a proposed market can be appealed")
+        # Deliberately NO deadline check here: appeals stay open for as long as
+        # the market is PROPOSED (even past the stamped deadline, until someone
+        # actually finalizes). The deadline's enforced meaning is one-sided —
+        # "finalize may not happen before it" — so lateness can only ever favour
+        # the appellant, never the party racing to lock the ruling in.
         if m["appealed"]:
             raise gl.vm.UserError("already appealed once")
         if not self.staker_options.get(f"{market_id}:{sender}", ""):
@@ -725,6 +839,39 @@ class Froth(gl.Contract):
         sender = str(gl.message.sender_address)
         if not m["appealed"] and m.get("resolver") and sender.lower() == str(m["resolver"]).lower():
             raise gl.vm.UserError("the wallet that resolved this can't finalize it unappealed")
+
+        # Contract-enforced appeal deadline. An UNAPPEALED ruling can only be
+        # finalized after a fresh consensus clock-fetch proves the window has
+        # passed — real elapsed minutes no second wallet can fake. Fail-closed
+        # on every degraded path: no trusted clock means no finalization. An
+        # appealed market proceeds at once — the (single) appeal right was
+        # exercised, so there is nothing left to protect with more waiting.
+        if not m["appealed"]:
+            deadline = int(m.get("appeal_open_until_epoch", 0))
+            now = self._utc_now()
+            if deadline == 0:
+                if now > 0:
+                    # clock was down at resolve — arm the window now, refuse now
+                    m["appeal_open_until_epoch"] = now + APPEAL_WINDOW_SECONDS
+                    self._save(m)
+                    raise gl.vm.UserError(
+                        f"appeal window armed — finalize after epoch "
+                        f"{now + APPEAL_WINDOW_SECONDS} ({APPEAL_WINDOW_SECONDS}s from now)"
+                    )
+                raise gl.vm.UserError(
+                    "no trusted clock right now — cannot prove the appeal window "
+                    "has passed; try again shortly"
+                )
+            if now == 0:
+                raise gl.vm.UserError(
+                    "no trusted clock right now — cannot prove the appeal window "
+                    "has passed; try again shortly"
+                )
+            if now < deadline:
+                raise gl.vm.UserError(
+                    f"appeal window still open — {deadline - now}s of real time "
+                    f"remain (until epoch {deadline})"
+                )
         ruling = m.get("ruling") or {}
         win = ruling.get("winning_option", "UNCLEAR")
         valid = isinstance(win, int) and 0 <= win < len(m["options"])

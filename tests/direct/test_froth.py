@@ -83,11 +83,29 @@ class _Evm:
         return _Proxy
 
 
+# Test wall-clock (epoch seconds) served to the contract's TIME_SOURCES, plus a
+# per-source SKEW map (URL substring -> seconds). The skew exists because of a
+# real production failure: a clock source that lied by ~6 minutes tripped the
+# divergence guard on every call while tests — which served all sources from one
+# shared clock — stayed green. Model dishonest clocks, not just absent ones.
+_NOW = [1_790_000_000]
+_SKEW = {}
+
+
 class _NondetWeb:
     @staticmethod
     def render(url, mode="text"):
         if "unreachable" in url:
             raise RuntimeError("403 blocked")
+        skew = next((v for k, v in _SKEW.items() if k in url), 0)
+        now = _NOW[0] + skew
+        if "cdn-cgi/trace" in url:
+            return f"fl=1x2\nh=cloudflare.com\nts={now}.000\nvisit_scheme=https\n"
+        if "blockscout" in url and "main-page/blocks" in url:
+            import datetime as _dt
+            t = _dt.datetime.fromtimestamp(now, _dt.timezone.utc)
+            return json.dumps([{"height": 25550946,
+                                "timestamp": t.strftime("%Y-%m-%dT%H:%M:%S.000000Z")}])
         return f"[stub page text from {url}]"
 
 
@@ -168,6 +186,8 @@ def contract(module):
     module.gl.message.sender_address = OWNER
     module.gl.message.value = 0
     module.gl._emit = _FakeEmit()
+    _NOW[0] = 1_790_000_000            # reset the test wall-clock each test
+    _SKEW.clear()                      # …and assume every clock source is honest
     return module.Froth(module.Address(OWNER))
 
 
@@ -196,13 +216,18 @@ def _bet(module, contract, mid, who, idx, amount):
     contract.bet(mid, idx)
 
 
-def _to_proposed(module, contract, win=0):
+def _to_proposed(module, contract, win=0, past_window=True):
     mid = _mk(module, contract)
     _bet(module, contract, mid, ALICE, 0, GEN)
     _bet(module, contract, mid, BOB, 1, GEN)
     _as(module, CREATOR, 0); contract.close_market(mid)
     _prime(module, win)
     _as(module, CAROL, 0); contract.resolve(mid)
+    if past_window:
+        # most tests exercise post-window behaviour: let the real appeal
+        # window elapse so finalize is reachable (the deadline itself is
+        # tested explicitly below with past_window=False)
+        _NOW[0] += module.APPEAL_WINDOW_SECONDS + 1
     return mid
 
 
@@ -395,6 +420,7 @@ def _settle(module, contract, mid, win):
     _as(module, CREATOR, 0); contract.close_market(mid)
     _prime(module, win)
     _as(module, CAROL, 0); contract.resolve(mid)
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS + 1   # let the real appeal window pass
     _as(module, BOB, 0); contract.finalize(mid)
 
 
@@ -660,3 +686,110 @@ def test_advance_season_owner_only(module, contract):
     _as(module, OWNER, 0)
     contract.advance_season()
     assert json.loads(contract.get_stats())["season"] == 2
+
+
+# ── contract-enforced appeal deadline (judge feedback 2026-07-17) ────────────
+#
+# "Please add a contract-enforced appeal deadline so an unappealed ruling
+#  cannot be finalized immediately, with a test covering both early rejection
+#  and finalization after the deadline."
+#
+# The deadline is real wall-clock time fetched under validator consensus (the
+# probe-verified Cloudflare + Ethereum-block pair), so no second wallet can
+# manufacture elapsed minutes the way it could manufacture protocol actions.
+
+def test_resolve_stamps_a_real_appeal_deadline(module, contract):
+    mid = _to_proposed(module, contract, past_window=False)
+    m = json.loads(contract.get_market(mid))
+    assert m["appeal_open_until_epoch"] == _NOW[0] + module.APPEAL_WINDOW_SECONDS
+
+
+def test_finalize_rejected_before_appeal_deadline(module, contract):
+    """Judge ask #1: early finalization must be refused — even from a wallet
+    other than the resolver (the exact two-wallet race the old guard missed)."""
+    mid = _to_proposed(module, contract, past_window=False)
+    _as(module, BOB, 0)                                    # NOT the resolver
+    with pytest.raises(module.gl.vm.UserError, match="appeal window still open"):
+        contract.finalize(mid)
+    # a second attempt one second before the deadline still fails
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS - 1
+    with pytest.raises(module.gl.vm.UserError, match="appeal window still open"):
+        contract.finalize(mid)
+    assert json.loads(contract.get_market(mid))["status"] == "PROPOSED"
+
+
+def test_finalize_allowed_after_deadline(module, contract):
+    """Judge ask #2: once the fetched clock proves the window elapsed, an
+    unappealed ruling finalizes normally."""
+    mid = _to_proposed(module, contract, past_window=False)
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS + 1
+    _as(module, BOB, 0)
+    m = json.loads(contract.finalize(mid))
+    assert m["status"] == "SETTLED"
+    assert m["winning_option"] == 0
+
+
+def test_appeal_stays_open_during_and_after_the_window(module, contract):
+    # during the window an appeal is accepted…
+    mid = _to_proposed(module, contract, past_window=False)
+    bond = contract._appeal_bond_wei(json.loads(contract.get_market(mid)))
+    _as(module, ALICE, bond)
+    m = json.loads(contract.appeal(mid))
+    assert m["appealed"] is True
+    # …and lateness never locks an appellant out: while still PROPOSED, an
+    # appeal is accepted even past the stamped deadline (deadline is one-sided —
+    # it only forbids EARLY finalization)
+    mid2 = _to_proposed(module, contract, past_window=False)
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS + 100
+    bond2 = contract._appeal_bond_wei(json.loads(contract.get_market(mid2)))
+    _as(module, BOB, bond2)
+    assert json.loads(contract.appeal(mid2))["appealed"] is True
+
+
+def test_appealed_market_finalizes_without_waiting(module, contract):
+    # the single appeal right was exercised — nothing left for the window to
+    # protect, so finalize proceeds at once
+    mid = _to_proposed(module, contract, past_window=False)
+    bond = contract._appeal_bond_wei(json.loads(contract.get_market(mid)))
+    _as(module, ALICE, bond)
+    contract.appeal(mid)
+    _as(module, BOB, 0)                       # no clock advance at all
+    assert json.loads(contract.finalize(mid))["status"] in ("SETTLED", "REFUNDING")
+
+
+def test_clock_down_at_resolve_arms_window_at_first_finalize(module, contract):
+    """Outage degrade: if no clock could be trusted when the ruling landed, the
+    deadline is armed on the FIRST finalize attempt — the window can only ever
+    get longer, never vanish."""
+    _SKEW["blockscout"] = -9999               # sources diverge → clock reads 0
+    mid = _to_proposed(module, contract, past_window=False)
+    assert json.loads(contract.get_market(mid))["appeal_open_until_epoch"] == 0
+    _SKEW.clear()                             # clock comes back
+    _as(module, BOB, 0)
+    with pytest.raises(module.gl.vm.UserError, match="appeal window armed"):
+        contract.finalize(mid)
+    # armed but not elapsed → still refused
+    with pytest.raises(module.gl.vm.UserError, match="appeal window still open"):
+        contract.finalize(mid)
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS + 1
+    assert json.loads(contract.finalize(mid))["status"] == "SETTLED"
+
+
+def test_no_trusted_clock_at_finalize_fails_closed(module, contract):
+    mid = _to_proposed(module, contract, past_window=False)
+    _NOW[0] += module.APPEAL_WINDOW_SECONDS + 1   # window HAS elapsed in truth…
+    _SKEW["blockscout"] = -9999                   # …but the clock is untrustable
+    _as(module, BOB, 0)
+    with pytest.raises(module.gl.vm.UserError, match="no trusted clock"):
+        contract.finalize(mid)
+    _SKEW.clear()                                 # clock returns → proceeds
+    assert json.loads(contract.finalize(mid))["status"] == "SETTLED"
+
+
+def test_clock_sources_are_only_the_on_chain_proven_ones(module):
+    # regression guard: timeapi.io lies (~6 min behind UTC) and worldtimeapi.org
+    # never loads from validators — the pair below is probe-verified
+    assert module.TIME_SOURCES == [
+        "https://cloudflare.com/cdn-cgi/trace",
+        "https://eth.blockscout.com/api/v2/main-page/blocks",
+    ]
