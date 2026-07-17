@@ -25,8 +25,12 @@ export type Market = {
   winning_option: number | null;
   ruling: Ruling | null;
   history?: { round: string; ruling: Ruling }[];
+  // contract-enforced appeal deadline (unix epoch; 0 = clock was down at the
+  // ruling — the window arms on the first finalize attempt instead)
+  appeal_open_until_epoch?: number;
   resolver: string | null;
   appealed: boolean;
+  appellant: string | null;
   appeal_bond: string;
   appeal_flipped: boolean;
   created_seq: number;

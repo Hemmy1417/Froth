@@ -122,7 +122,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         )}
       </div>
 
-      {/* ruling */}
+      {/* ruling + on-chain history */}
       {m.ruling && (
         <div className="card p-4 mt-4">
           <div className="eyebrow mb-1">
@@ -132,6 +132,49 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             {typeof m.ruling.winning_option === "number" ? `Winner: ${m.options[m.ruling.winning_option] ?? m.ruling.winning_option}` : "UNCLEAR → refunds"}
           </p>
           {m.ruling.reasons?.length > 0 && <p className="body text-[0.82rem] mt-1 leading-relaxed">{m.ruling.reasons.join(" ")}</p>}
+
+          {/* round-by-round ruling history, straight off the contract */}
+          {(m.history?.length ?? 0) > 0 && (
+            <>
+              <div className="hrule my-3" />
+              <div className="eyebrow mb-1.5">Ruling history · on-chain</div>
+              <div className="flex flex-col gap-1.5">
+                {m.history!.map((h, i) => (
+                  <div key={i} className="mono text-xs flex gap-2 items-baseline">
+                    <span className="muted shrink-0">R{i + 1}</span>
+                    <span className="shrink-0">{h.round === "appeal" ? "appeal re-run" : "initial ruling"}</span>
+                    <span className="muted">→</span>
+                    <span>
+                      {typeof h.ruling?.winning_option === "number"
+                        ? (m.options[h.ruling.winning_option] ?? h.ruling.winning_option)
+                        : "UNCLEAR"}
+                      {h.ruling?.confidence ? ` · ${h.ruling.confidence}` : ""}
+                    </span>
+                  </div>
+                ))}
+                {m.appealed && (
+                  <div className="mono text-xs muted">
+                    appealed by {m.appellant ? `${m.appellant.slice(0, 6)}…${m.appellant.slice(-4)}` : "a bettor"} (bonded)
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* contract-enforced appeal deadline */}
+          {(m.appeal_open_until_epoch ?? 0) > 0 ? (
+            <p className="mono text-[0.62rem] muted mt-3">
+              {m.status === "PROPOSED"
+                ? (Date.now() / 1000 < m.appeal_open_until_epoch!
+                    ? `⏳ appeal window open — finalizable after ${new Date(m.appeal_open_until_epoch! * 1000).toUTCString()} (contract re-fetches the clock to prove it)`
+                    : `appeal window passed (${new Date(m.appeal_open_until_epoch! * 1000).toUTCString()}) — finalizable now; appeals stay open until someone finalizes`)
+                : `appeal window was enforced until ${new Date(m.appeal_open_until_epoch! * 1000).toUTCString()} — early finalization refused by the contract`}
+            </p>
+          ) : m.status === "PROPOSED" ? (
+            <p className="mono text-[0.62rem] muted mt-3">
+              ⏳ no clock was trusted at ruling time — the appeal window arms on the first finalize attempt (it can only get longer, never vanish)
+            </p>
+          ) : null}
         </div>
       )}
       {m.status === "SETTLED" && <p className="mono text-sm mt-3" style={{ color: "var(--win)" }}>✓ Settled — {m.options[m.winning_option ?? 0]} won. Winners split the pool.</p>}
