@@ -27,6 +27,7 @@ function NewMarketInner() {
   const [busy, setBusy] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [err, setErr] = useState("");
+  const [draftWarnings, setDraftWarnings] = useState<string[]>([]);
 
   const urlOk = (u: string) => /^https?:\/\/\S+/.test(u.trim());
   // Source-integrity guardrail (UI-enforced): a market's evidence should be
@@ -53,6 +54,8 @@ function NewMarketInner() {
           while (drafted.length < 2) drafted.push("");   // guardrail: keep two fields
           setSources(drafted);
         }
+        // the panel's editor pass: ambiguity + edge cases the creator should fix
+        setDraftWarnings([...(d.ambiguity_warnings ?? []), ...(d.edge_cases ?? [])].slice(0, 6));
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setDrafting(false); }
@@ -129,6 +132,12 @@ function NewMarketInner() {
           </div>
           <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={2} placeholder="Will $BTC break $100k this week?" className="field" />
         </Field>
+        {draftWarnings.length > 0 && (
+          <div className="raised p-3" style={{ borderLeft: "2px solid var(--hot)", marginTop: -8 }}>
+            <div className="eyebrow mb-1" style={{ color: "var(--hot)" }}>The panel flagged — resolve before opening</div>
+            {draftWarnings.map((w, i) => <p key={i} className="body text-[0.76rem]">• {w}</p>)}
+          </div>
+        )}
         <Field label="Sides">
           <div className="flex gap-2">
             <input value={yes} onChange={(e) => setYes(e.target.value)} className="field" style={{ borderColor: "rgba(53,229,159,0.4)" }} />

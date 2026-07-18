@@ -82,7 +82,30 @@ export type Parlay = {
   status: "OPEN" | "WON" | "LOST" | "VOID"; created_seq: number;
 };
 export type Take = { addr: string; text: string; seq: number };
-export type Draft = { ticker: string; category: string; question: string; criteria: string; sources: string[] };
+export type Draft = {
+  ticker: string; category: string; question: string; criteria: string; sources: string[];
+  ambiguity_warnings?: string[]; edge_cases?: string[];
+};
+
+// Internet-Court case file: one structured panel brief, appended per filing.
+export type CaseBrief = {
+  summary: string;
+  evidence: { source: string; finding: string }[];
+  arguments_yes: string[];
+  arguments_no: string[];
+  recent_developments: string[];
+  precedents: string[];
+  implied_yes_pct: number;
+  confidence: string;
+};
+export type CaseFile = {
+  index: number;
+  at_epoch: number;        // 0 = clock unreachable at filing
+  pools: string[];         // market pools at filing time
+  status: string;
+  filed_by: string;
+  brief: CaseBrief;
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Client = any;
@@ -213,6 +236,16 @@ export async function getOddsHistory(marketId: string): Promise<string[][]> {
   // each entry is a pools snapshot [pool0, pool1, ...] after a bet, oldest first
   const raw = await read("get_odds_history", [marketId]);
   return raw ? (JSON.parse(raw) as string[][]) : [];
+}
+export async function getCaseFiles(marketId: string): Promise<CaseFile[]> {
+  // the market's evidence timeline: every panel brief ever filed, oldest first
+  const raw = await read("get_case_files", [marketId]);
+  return raw ? (JSON.parse(raw) as CaseFile[]) : [];
+}
+export function buildCaseFile(client: Client, marketId: string): Promise<string> {
+  // a real validator investigation (~60-90s): fetches the pinned sources and
+  // files a fresh structured brief on-chain
+  return writeAndWait(client, "build_case_file", [marketId]);
 }
 export function suggestMarket(client: Client, ticker: string, category: string, hint: string): Promise<string> {
   return writeAndWait(client, "suggest_market", [ticker, category, hint]);

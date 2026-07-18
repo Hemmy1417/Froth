@@ -2,7 +2,7 @@
 
 **Fast, AI-settled sentiment markets on GenLayer.** Anyone can open a market on a real-world question; the crowd prices it in public through parimutuel pools, and a GenLayer validator panel reads the pinned sources and settles the outcome. No external oracle, no house edge on markets, and appeals are handled on-chain.
 
-- **Contract:** `0xA436639b3ed952749c371b5C51bD42c0d7e11F47`
+- **Contract:** `0xE62f47B248bedA342C3863f39eedABEf410CfC4b`
 - **Network:** GenLayer Studionet (chain 61999)
 - **Engine:** the Delphi resolution engine — validator-fetched evidence, bonded appeals, solvency accounting
 
@@ -26,6 +26,26 @@ These properties are inherited from the Delphi engine and enforced in the contra
 - **Solvency accounting.** Escrowed, paid, and fee balances are tracked on-chain; a settled or refunded market closes its books to exactly zero.
 - **Open-market exit.** Any position can be withdrawn in full while betting is live.
 - **Creator cancel — guarded by immutability.** A creator can `cancel_market` (VOID) a mistaken market they own, but *only while it has zero bets*: the instant a single stake lands, `total_pool` is non-zero and cancel is refused forever. So a creator can undo a typo before anyone commits money, yet can never delete a market people have wagered on. No funds move (a zero-pool market holds no escrow); a market that's a live parlay leg may still be cancelled — `claim_parlay` treats the resulting VOID leg as a void-and-refund, so those parlays return their stake rather than being stranded.
+
+## The Internet Court: every market is a case
+
+A Froth market is not just a price — it is a **case before a panel**, and the market page reads like one: *Case m-N*, with the question, the pinned evidence, the arguments, the verdict, and the appeal record.
+
+The heart of it is the **on-chain case file**. Anyone may call `build_case_file(market_id)` — non-payable, permissionless — and the validator panel fetches the pinned sources and files a structured brief:
+
+- a neutral **summary** of where the question stands,
+- **per-source findings** ("what this source actually shows"),
+- the strongest case **for each side**, steelmanned from the same evidence,
+- recent developments and known precedents,
+- the panel's **implied probability** and an evidence-quality **confidence** read.
+
+Case files **append, never overwrite** — each is stamped with a consensus-fetched UTC epoch and the pool odds at that moment, so the sequence forms the market's **evidence timeline**: you can watch the panel's read and the crowd's price evolve side by side, filing by filing. The market page renders the latest brief as a two-column debate (the case for YES / the case for NO), a confidence meter built only from measured quantities (panel read, confidence, sources cited, crowd price), and the full timeline beneath.
+
+Honesty notes, because they matter: the debate updates **when someone reopens the file** — each update is a real validator investigation (~90s of consensus), not a stream you have to trust; in a parimutuel market the *price* moves only when bets move it, so the case file explains the **evidence**, and the odds chart shows the **money** — Froth does not pretend one causes the other. The same injection guardrails as settlement apply: fetched text is material under review, never instructions, and an unreachable source supports nothing.
+
+**Verified live on-chain (2026-07-18):** a case file was filed on a real market ("Is the Bitcoin block height above 900,000?") — the panel fetched both pinned sources, reported their exact findings (heights 958,525 and 958,524), *flagged the one-block discrepancy between them as an argument for NO* while reading YES at 100% with HIGH confidence, and stamped the filing with a consensus epoch 32 seconds off true UTC.
+
+The AI market drafter is part of the same court: `suggest_market` now also acts as the **clerk**, flagging ambiguity (undefined terms, missing deadlines) and edge cases (postponements, dead sources) the criteria must survive — shown to the creator as warnings before the market opens.
 
 ## Trust model: pinned sources
 

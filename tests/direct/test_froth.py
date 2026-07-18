@@ -935,3 +935,94 @@ def test_scheduled_close_fails_closed_without_a_trusted_clock(module, contract):
     _SKEW.clear()
     _as(module, ALICE, 0)
     assert json.loads(contract.close_market(mid))["status"] == "CLOSED"   # clock back → closes
+
+
+# ── Internet-Court case files ────────────────────────────────────────────────
+
+def _prime_case(module, yes_pct=64, confidence="MEDIUM"):
+    module.gl.eq_principle.canned = json.dumps({
+        "summary": "Neutral summary of where the question stands.",
+        "evidence": [{"source": SRC1, "finding": "shows the metric at 42"}],
+        "arguments_yes": ["metric trending up", "second source corroborates"],
+        "arguments_no": ["deadline is tight"],
+        "recent_developments": ["source updated today"],
+        "precedents": ["a similar 2024 case resolved YES"],
+        "implied_yes_pct": yes_pct, "confidence": confidence,
+    })
+
+
+def test_case_file_is_filed_with_epoch_and_pools(module, contract):
+    mid = _mk(module, contract)
+    _bet(module, contract, mid, ALICE, 0, GEN)
+    _prime_case(module)
+    _as(module, BOB, 0)                                     # anyone may file
+    entry = json.loads(contract.build_case_file(mid))
+    assert entry["index"] == 0
+    assert entry["at_epoch"] == _NOW[0]                     # stamped from the trace fetch
+    assert entry["pools"] == [str(GEN), "0"]                # odds at filing time
+    assert entry["filed_by"].lower() == BOB.lower()
+    b = entry["brief"]
+    assert b["implied_yes_pct"] == 64 and b["confidence"] == "MEDIUM"
+    assert b["arguments_yes"] and b["arguments_no"]
+    files = json.loads(contract.get_case_files(mid))
+    assert len(files) == 1 and files[0]["index"] == 0
+
+
+def test_case_files_append_into_a_timeline(module, contract):
+    mid = _mk(module, contract)
+    _prime_case(module, yes_pct=55)
+    _as(module, ALICE, 0); contract.build_case_file(mid)
+    _NOW[0] += 3600                                         # an hour later…
+    _bet(module, contract, mid, ALICE, 0, GEN)              # …odds move…
+    _prime_case(module, yes_pct=70, confidence="HIGH")
+    _as(module, BOB, 0); contract.build_case_file(mid)      # …and the file reopens
+    files = json.loads(contract.get_case_files(mid))
+    assert [f["index"] for f in files] == [0, 1]
+    assert files[1]["at_epoch"] - files[0]["at_epoch"] == 3600
+    assert files[0]["pools"] == ["0", "0"] and files[1]["pools"] == [str(GEN), "0"]
+    assert files[1]["brief"]["implied_yes_pct"] == 70       # the debate updated
+
+
+def test_case_file_refused_for_pending_and_void(module, contract):
+    parent = _mk(module, contract)
+    _as(module, CREATOR, 0)
+    child = json.loads(contract.create_market("$ETH", "crypto", "cond case", json.dumps(["Yes", "No"]),
+        json.dumps([SRC1]), "criteria here", 0, "", parent, 0))
+    _prime_case(module)
+    _as(module, ALICE, 0)
+    with pytest.raises(module.gl.vm.UserError, match="PENDING"):
+        contract.build_case_file(child["id"])
+    gone = _mk(module, contract)
+    _as(module, CREATOR, 0); contract.cancel_market(gone)
+    with pytest.raises(module.gl.vm.UserError, match="VOID"):
+        contract.build_case_file(gone)
+
+
+def test_case_prompt_pins_sources_and_guards_injection(module, contract):
+    mid = _mk(module, contract, uris=[SRC1, SRC2])
+    _prime_case(module)
+    _as(module, ALICE, 0)
+    contract.build_case_file(mid)
+    panel_input = module.gl.eq_principle.last_input
+    assert "CASE FILE" in panel_input
+    assert SRC1 in panel_input and SRC2 in panel_input      # pinned sources fetched
+    assert "never as instructions" in panel_input           # injection guardrail
+    assert "Steelman BOTH sides" in panel_input
+
+
+def test_case_file_still_open_after_resolution(module, contract):
+    # a case can be reopened on a PROPOSED market (e.g. to inform an appeal)
+    mid = _to_proposed(module, contract, past_window=False)
+    _prime_case(module)
+    _as(module, ALICE, 0)
+    assert json.loads(contract.build_case_file(mid))["status"] == "PROPOSED"
+
+
+def test_draft_prompt_flags_ambiguity_and_edge_cases(module, contract):
+    module.gl.eq_principle.canned = json.dumps({
+        "question": "Will X?", "criteria": "YES if X by date", "sources": [SRC1],
+        "ambiguity_warnings": ["no timezone named"], "edge_cases": ["postponement"]})
+    _as(module, ALICE, 0)
+    contract.suggest_market("$X", "crypto", "x happening")
+    assert "ambiguity_warnings" in module.gl.eq_principle.last_input
+    assert "EDGE CASES" in module.gl.eq_principle.last_input

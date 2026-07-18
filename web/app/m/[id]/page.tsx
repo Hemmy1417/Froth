@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useWallet } from "@/lib/wallet";
 import { CATEGORY_META, explorerTxUrl } from "@/lib/config";
 import {
-  getMarket, getAppealBond, getTakes, getPositions, getOddsHistory, bet, unstake, closeMarket, cancelMarket, resolve, appeal, finalize, claim,
-  postTake, activateConditional, genFromWei, genToWei, shortAddr, odds, type Market, type Take,
+  getMarket, getAppealBond, getTakes, getPositions, getOddsHistory, getCaseFiles, buildCaseFile, listMarkets,
+  bet, unstake, closeMarket, cancelMarket, resolve, appeal, finalize, claim,
+  postTake, activateConditional, genFromWei, genToWei, shortAddr, odds, type Market, type Take, type CaseFile,
 } from "@/lib/froth";
 import { StatusPill, OddsBar } from "@/components/Bits";
 import { useSlip } from "@/components/ParlaySlip";
@@ -27,6 +28,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [myBets, setMyBets] = useState<{ option: number; amount: string }[]>([]);
   const [claimedHere, setClaimedHere] = useState(false);
   const [oddsHist, setOddsHist] = useState<string[][]>([]);
+  const [caseFiles, setCaseFiles] = useState<CaseFile[]>([]);
+  const [related, setRelated] = useState<Market[]>([]);
   const slip = useSlip();
 
   const load = useCallback(async () => {
@@ -36,6 +39,14 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       if (mk && mk.status === "PROPOSED" && !mk.appealed) getAppealBond(id).then(setABond).catch(() => {});
       getTakes(id).then(setTakes).catch(() => {});
       getOddsHistory(id).then(setOddsHist).catch(() => {});
+      getCaseFiles(id).then(setCaseFiles).catch(() => {});
+      if (mk) {
+        listMarkets(60).then((all) => setRelated(
+          all.filter((x) => x.id !== mk.id &&
+            (x.ticker.toLowerCase() === mk.ticker.toLowerCase() || (!!mk.event && x.event === mk.event)))
+            .slice(0, 4)
+        )).catch(() => {});
+      }
       if (address) {
         getPositions(address).then((ps: { market_id: string; bets: { option: number; amount: string }[]; claimed: boolean }[]) => {
           const mine = ps.find((p) => p.market_id === id);
@@ -90,7 +101,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         <span className="ticker">{m.ticker}</span>
         <span className="chip">{cat.emoji} {cat.label}</span>
         <StatusPill status={m.status} />
-        <span className="mono text-xs muted ml-auto">{m.id}</span>
+        <span className="mono text-xs muted ml-auto">Case {m.id}</span>
       </div>
       <h1 className="display" style={{ fontSize: "clamp(22px, 3.2vw, 34px)", lineHeight: 1.1 }}>{m.question}</h1>
       <p className="mono text-xs muted mt-2">
@@ -135,6 +146,16 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           </div>
         )}
       </div>
+
+      {/* the case file — Internet-Court brief + evidence timeline */}
+      <CaseFileSection
+        files={caseFiles}
+        market={m}
+        busy={busy}
+        canFile={m.status !== "PENDING" && m.status !== "VOID"}
+        onFile={() => run("casefile", () => buildCaseFile(client, id))}
+        connected={!!address}
+      />
 
       {/* ruling + on-chain history */}
       {m.ruling && (
@@ -263,6 +284,22 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       )}
       {m.status === "PROPOSED" && isResolver && !m.appealed && <p className="mono text-[0.6rem] muted mt-2">You settled this — another wallet finalizes it (the appeal window).</p>}
 
+      {/* related cases — same ticker or event */}
+      {related.length > 0 && (
+        <div className="card p-4 mt-4">
+          <div className="eyebrow mb-2">Related cases</div>
+          <div className="flex flex-col gap-2">
+            {related.map((r) => (
+              <Link key={r.id} href={`/m/${r.id}`} className="flex items-center gap-2 mono text-[0.7rem]">
+                <span className="ticker" style={{ padding: "0.05rem 0.35rem", fontSize: "0.62rem" }}>{r.ticker}</span>
+                <span className="muted truncate flex-1">{r.question}</span>
+                <StatusPill status={r.status} />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* takes / comments */}
       <div className="mt-6">
         <div className="flex items-center justify-between mb-3">
@@ -352,6 +389,129 @@ function OddsChart({ history, options }: { history: string[][]; options: string[
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Internet-Court case file ─────────────────────────────────────────────────
+// The market as a case: a validator-panel brief (summary, per-source findings,
+// steelmanned arguments for both sides, confidence) filed on-chain; filings
+// append, so the sequence is the market's evidence timeline. "Reopen the file"
+// runs a real investigation (~60-90s of validator consensus) — that is the
+// honest shape of "live" on GenLayer: every update is a verified transaction.
+function CaseFileSection({ files, market, busy, canFile, onFile, connected }: {
+  files: CaseFile[]; market: Market; busy: string; canFile: boolean;
+  onFile: () => void; connected: boolean;
+}) {
+  const latest = files.length > 0 ? files[files.length - 1] : null;
+  const b = latest?.brief;
+  const yesPct = b ? Math.max(0, Math.min(100, Number(b.implied_yes_pct) || 50)) : 50;
+  const conf = (b?.confidence || "LOW").toUpperCase();
+  const stars = conf === "HIGH" ? 5 : conf === "MEDIUM" ? 3 : 2;
+  const fmtDate = (e: number) => (e > 0 ? new Date(e * 1000).toUTCString().replace(":00 GMT", " UTC") : "clock unavailable");
+
+  return (
+    <div className="card p-4 mt-4" style={{ borderColor: "var(--line-hot)" }}>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <div className="eyebrow" style={{ color: "var(--aqua)" }}>Case file · panel investigation</div>
+        {connected && canFile && (
+          <button onClick={onFile} disabled={!!busy} className={latest ? "btn-ghost" : "btn"} style={{ padding: "0.35rem 0.8rem", fontSize: "0.72rem" }}>
+            {busy === "casefile" ? "Panel investigating… (~90s)" : latest ? "Reopen the file" : "Open the case file"}
+          </button>
+        )}
+      </div>
+
+      {!latest ? (
+        <p className="body text-sm mt-2">
+          No case file yet. Anyone can ask the validator panel to investigate the pinned sources
+          and file a structured brief — summary, evidence, and the strongest case for <em>both</em> sides.
+        </p>
+      ) : (
+        <>
+          <p className="mono text-[0.62rem] muted mb-2">
+            filing #{latest.index + 1} · {fmtDate(latest.at_epoch)} · by {shortAddr(latest.filed_by)}
+          </p>
+          <p className="body text-[0.88rem] leading-relaxed">{b!.summary}</p>
+
+          {/* confidence meter — only what is actually measured */}
+          <div className="raised p-3 mt-3 flex flex-wrap gap-x-6 gap-y-2 items-center">
+            <span className="mono text-xs"><span className="muted">Panel read · </span><span style={{ color: "var(--yes)" }}>{market.options[0]} {yesPct}%</span><span className="muted"> / </span><span style={{ color: "var(--no)" }}>{market.options[1] ?? "No"} {100 - yesPct}%</span></span>
+            <span className="mono text-xs"><span className="muted">Confidence · </span><span className="ink">{conf}</span> <span style={{ color: "var(--hot)", letterSpacing: 2 }}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span></span>
+            <span className="mono text-xs"><span className="muted">Sources cited · </span><span className="ink">{b!.evidence.length}</span></span>
+            <span className="mono text-xs"><span className="muted">Crowd · </span><span className="ink">{odds(market)[0]}%</span></span>
+          </div>
+
+          {/* the debate: steelmanned both ways from the same evidence */}
+          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+            <div className="raised p-3" style={{ borderLeft: "2px solid var(--yes)" }}>
+              <div className="eyebrow mb-1.5" style={{ color: "var(--yes)" }}>The case for {market.options[0]} · {yesPct}%</div>
+              <ul className="flex flex-col gap-1">
+                {b!.arguments_yes.map((a, i) => <li key={i} className="body text-[0.8rem] leading-snug">• {a}</li>)}
+                {b!.arguments_yes.length === 0 && <li className="mono text-xs muted">the evidence offers nothing for this side</li>}
+              </ul>
+            </div>
+            <div className="raised p-3" style={{ borderLeft: "2px solid var(--no)" }}>
+              <div className="eyebrow mb-1.5" style={{ color: "var(--no)" }}>The case for {market.options[1] ?? "No"} · {100 - yesPct}%</div>
+              <ul className="flex flex-col gap-1">
+                {b!.arguments_no.map((a, i) => <li key={i} className="body text-[0.8rem] leading-snug">• {a}</li>)}
+                {b!.arguments_no.length === 0 && <li className="mono text-xs muted">the evidence offers nothing for this side</li>}
+              </ul>
+            </div>
+          </div>
+
+          {/* evidence findings, per pinned source */}
+          {b!.evidence.length > 0 && (
+            <div className="mt-3">
+              <div className="eyebrow mb-1.5">Evidence · what each pinned source shows</div>
+              <div className="flex flex-col gap-1.5">
+                {b!.evidence.map((e, i) => (
+                  <div key={i} className="mono text-[0.7rem] leading-snug">
+                    <a href={e.source} target="_blank" rel="noreferrer" className="link break-all">{e.source}</a>
+                    <span className="muted"> — </span><span className="body text-[0.78rem]">{e.finding}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(b!.recent_developments.length > 0 || b!.precedents.length > 0) && (
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">
+              {b!.recent_developments.length > 0 && (
+                <div>
+                  <div className="eyebrow mb-1">Recent developments</div>
+                  {b!.recent_developments.map((d, i) => <p key={i} className="body text-[0.78rem]">• {d}</p>)}
+                </div>
+              )}
+              {b!.precedents.length > 0 && (
+                <div>
+                  <div className="eyebrow mb-1">Precedents</div>
+                  {b!.precedents.map((p, i) => <p key={i} className="body text-[0.78rem]">• {p}</p>)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* evidence timeline — every prior filing, with the odds at that moment */}
+          {files.length > 1 && (
+            <div className="mt-3">
+              <div className="eyebrow mb-1.5">Evidence timeline · {files.length} filings</div>
+              <div className="flex flex-col gap-1">
+                {[...files].reverse().map((f) => {
+                  const total = f.pools.reduce((a, p) => a + Number(p), 0);
+                  const crowd = total > 0 ? Math.round((Number(f.pools[0]) / total) * 100) : 50;
+                  return (
+                    <div key={f.index} className="mono text-[0.66rem] flex gap-2 flex-wrap">
+                      <span className="muted">#{f.index + 1}</span>
+                      <span>{fmtDate(f.at_epoch)}</span>
+                      <span className="muted">panel {Math.round(Number(f.brief.implied_yes_pct) || 50)}% · crowd {crowd}% · {String(f.brief.confidence).toUpperCase()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
