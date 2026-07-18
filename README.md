@@ -2,7 +2,7 @@
 
 **Fast, AI-settled sentiment markets on GenLayer.** Anyone can open a market on a real-world question; the crowd prices it in public through parimutuel pools, and a GenLayer validator panel reads the pinned sources and settles the outcome. No external oracle, no house edge on markets, and appeals are handled on-chain.
 
-- **Contract:** `0xEd7E03D5B253bCB956902C53519Cf77336Fb698c`
+- **Contract:** `0x978300f03B9D5b05546f3850CF2e098329Aa9b10`
 - **Network:** GenLayer Studionet (chain 61999)
 - **Engine:** the Delphi resolution engine — validator-fetched evidence, bonded appeals, solvency accounting
 
@@ -25,6 +25,7 @@ These properties are inherited from the Delphi engine and enforced in the contra
 - **Fail-safe refunds.** An UNCLEAR ruling — including the case where the evidence cannot support a confident verdict — refunds every stake rather than forcing an outcome.
 - **Solvency accounting.** Escrowed, paid, and fee balances are tracked on-chain; a settled or refunded market closes its books to exactly zero.
 - **Open-market exit.** Any position can be withdrawn in full while betting is live.
+- **Creator cancel — guarded by immutability.** A creator can `cancel_market` (VOID) a mistaken market they own, but *only while it has zero bets*: the instant a single stake lands, `total_pool` is non-zero and cancel is refused forever. So a creator can undo a typo before anyone commits money, yet can never delete a market people have wagered on. No funds move (a zero-pool market holds no escrow); a market that's a live parlay leg may still be cancelled — `claim_parlay` treats the resulting VOID leg as a void-and-refund, so those parlays return their stake rather than being stranded.
 
 ## Trust model: pinned sources
 

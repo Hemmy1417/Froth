@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useWallet } from "@/lib/wallet";
 import { CATEGORY_META, explorerTxUrl } from "@/lib/config";
 import {
-  getMarket, getAppealBond, getTakes, getPositions, bet, unstake, closeMarket, resolve, appeal, finalize, claim,
+  getMarket, getAppealBond, getTakes, getPositions, bet, unstake, closeMarket, cancelMarket, resolve, appeal, finalize, claim,
   postTake, activateConditional, genFromWei, genToWei, shortAddr, odds, type Market, type Take,
 } from "@/lib/froth";
 import { StatusPill, OddsBar } from "@/components/Bits";
@@ -208,6 +208,20 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       {address && (
         <div className="flex gap-2 flex-wrap mt-5">
           {m.status === "OPEN" && isCreator && <button onClick={() => run("close", () => closeMarket(client, id))} disabled={!!busy} className="btn-ghost">{busy === "close" ? "Closing…" : "Close betting"}</button>}
+          {/* Creator kill-switch — only while nobody has staked (pool 0) and the
+              market is still cancellable. The contract enforces all of this; the
+              button just mirrors it so it never offers a call that would revert. */}
+          {isCreator && (m.status === "OPEN" || m.status === "PENDING") && BigInt(m.total_pool || "0") === 0n && (
+            <button
+              onClick={() => { if (confirm("Cancel this market? This is only possible because nobody has staked on it. It will be voided permanently.")) run("cancel", () => cancelMarket(client, id)); }}
+              disabled={!!busy}
+              className="btn-ghost"
+              style={{ color: "var(--hot)" }}
+              title="Void a mistaken market — allowed only while it has zero bets"
+            >
+              {busy === "cancel" ? "Cancelling…" : "Cancel market"}
+            </button>
+          )}
           {m.status === "CLOSED" && <button onClick={() => run("resolve", () => resolve(client, id))} disabled={!!busy} className="btn">{busy === "resolve" ? "Settling…" : "Settle (run panel)"}</button>}
           {m.status === "PROPOSED" && !m.appealed && <button onClick={() => run("appeal", () => appeal(client, id, aBond))} disabled={!!busy || aBond === 0n} className="btn-ghost">{busy === "appeal" ? "Re-reading…" : `Appeal · ${genFromWei(aBond)} GEN`}</button>}
           {m.status === "PROPOSED" && !(isResolver && !m.appealed) && <button onClick={() => run("finalize", () => finalize(client, id))} disabled={!!busy} className="btn">{busy === "finalize" ? "Finalizing…" : "Finalize"}</button>}

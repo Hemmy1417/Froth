@@ -793,3 +793,80 @@ def test_clock_sources_are_only_the_on_chain_proven_ones(module):
         "https://cloudflare.com/cdn-cgi/trace",
         "https://eth.blockscout.com/api/v2/main-page/blocks",
     ]
+
+
+# ── creator cancel (kill-switch, guarded to preserve immutability) ───────────
+
+def test_creator_can_cancel_a_zero_bet_market(module, contract):
+    mid = _mk(module, contract)
+    before = contract.get_protocol_stats() if hasattr(contract, "get_protocol_stats") else None
+    _as(module, CREATOR, 0)
+    out = json.loads(contract.cancel_market(mid))
+    assert out["status"] == "VOID"
+    assert json.loads(contract.get_market(mid))["status"] == "VOID"
+    # the OPEN market left the live count
+    assert int(contract.total_open) == 0
+
+
+def test_cancel_is_creator_only(module, contract):
+    mid = _mk(module, contract)
+    _as(module, ALICE, 0)                       # not the creator
+    with pytest.raises(module.gl.vm.UserError, match="only the creator"):
+        contract.cancel_market(mid)
+    assert json.loads(contract.get_market(mid))["status"] == "OPEN"
+
+
+def test_cancel_refused_once_a_bet_exists(module, contract):
+    # THE load-bearing invariant: one bet and the market can never be erased
+    mid = _mk(module, contract)
+    _bet(module, contract, mid, ALICE, 0, GEN)
+    _as(module, CREATOR, 0)
+    with pytest.raises(module.gl.vm.UserError, match="has bets on it and can never be cancelled"):
+        contract.cancel_market(mid)
+    assert json.loads(contract.get_market(mid))["status"] == "OPEN"
+
+
+def test_cancel_refused_after_close(module, contract):
+    mid = _mk(module, contract)
+    _as(module, CREATOR, 0); contract.close_market(mid)
+    _as(module, CREATOR, 0)
+    with pytest.raises(module.gl.vm.UserError, match="OPEN or PENDING"):
+        contract.cancel_market(mid)
+
+
+def test_cancel_a_pending_conditional_does_not_touch_live_count(module, contract):
+    parent = _mk(module, contract)             # OPEN → total_open = 1
+    _as(module, CREATOR, 0)
+    child = json.loads(contract.create_market("$ETH", "crypto", "cond market", json.dumps(["Yes", "No"]),
+        json.dumps([SRC1]), "criteria here", 0, "", parent, 0))
+    assert child["status"] == "PENDING"
+    assert int(contract.total_open) == 1       # PENDING never counted
+    _as(module, CREATOR, 0)
+    assert json.loads(contract.cancel_market(child["id"]))["status"] == "VOID"
+    assert int(contract.total_open) == 1       # cancelling a PENDING leaves it unchanged
+
+
+def test_cannot_cancel_twice(module, contract):
+    mid = _mk(module, contract)
+    _as(module, CREATOR, 0); contract.cancel_market(mid)
+    _as(module, CREATOR, 0)
+    with pytest.raises(module.gl.vm.UserError, match="OPEN or PENDING"):
+        contract.cancel_market(mid)
+
+
+def test_cancelled_leg_voids_and_refunds_its_parlay(module, contract):
+    # a market that is a live parlay leg CAN be cancelled; the parlay self-heals
+    m1 = _mk(module, contract); m2 = _mk(module, contract)
+    _as(module, OWNER, 50 * GEN); contract.seed_parlay_reserve()
+    _as(module, ALICE, GEN)
+    p = json.loads(contract.place_parlay(json.dumps(
+        [{"market_id": m1, "option": 0}, {"market_id": m2, "option": 0}])))
+    # m1 has no direct bets (parlay legs don't touch the pool) → creator can cancel
+    assert int(json.loads(contract.get_market(m1))["total_pool"]) == 0
+    _as(module, CREATOR, 0)
+    assert json.loads(contract.cancel_market(m1))["status"] == "VOID"
+    # claiming the parlay now voids it and returns the stake
+    _as(module, ALICE, 0)
+    out = json.loads(contract.claim_parlay(p["id"]))
+    assert out["status"] == "VOID"
+    assert module.gl._emit.total_to(ALICE) >= GEN     # stake refunded

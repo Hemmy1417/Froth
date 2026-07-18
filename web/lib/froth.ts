@@ -237,6 +237,9 @@ export function unstake(client: Client, marketId: string): Promise<string> {
 export function closeMarket(client: Client, marketId: string): Promise<string> {
   return writeAndWait(client, "close_market", [marketId]);
 }
+export function cancelMarket(client: Client, marketId: string): Promise<string> {
+  return writeAndWait(client, "cancel_market", [marketId]);
+}
 export function resolve(client: Client, marketId: string): Promise<string> {
   return writeAndWait(client, "resolve", [marketId]);
 }

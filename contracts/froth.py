@@ -1,4 +1,4 @@
-# v0.3.0
+# v0.4.0
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 # Froth — fast, AI-settled sentiment markets on GenLayer.
@@ -777,6 +777,47 @@ class Froth(gl.Contract):
         m["status"] = "CLOSED"
         self._save(m)
         self.total_open = u256(max(0, int(self.total_open) - 1))
+        return json.dumps(m)
+
+    @gl.public.write
+    def cancel_market(self, market_id: str) -> str:
+        """
+        Creator kill-switch for a mistaken market — guarded so it can NEVER
+        violate the immutability guarantee that protects staked money.
+
+        Allowed ONLY when:
+          - the caller is the creator, AND
+          - nobody has any money at stake: the market's pool is exactly 0, AND
+          - the market is still early-lifecycle (OPEN or PENDING) — never once it
+            has been closed, resolved, settled, or already voided.
+
+        The pool==0 check is the load-bearing invariant: the instant a single bet
+        lands, `total_pool` is non-zero and cancel is refused forever, so a
+        creator can never delete a market people have wagered on. (A market that
+        is a leg of an open PARLAY may still be cancelled — that leg can no longer
+        win, and claim_parlay already treats a VOID leg as a void-and-refund, so
+        those parlays return their stake rather than being stranded.)
+
+        No funds move: a zero-pool market holds no escrow. The market is marked
+        VOID and drops out of the live book; its id is never reused.
+        """
+        m = self._get(market_id)
+        if str(gl.message.sender_address).lower() != m["creator"].lower():
+            raise gl.vm.UserError("only the creator may cancel this market")
+        if m["status"] not in ("OPEN", "PENDING"):
+            raise gl.vm.UserError(
+                f"only an OPEN or PENDING market can be cancelled (this is {m['status']})"
+            )
+        if int(m["total_pool"]) != 0:
+            raise gl.vm.UserError(
+                "this market has bets on it and can never be cancelled — its "
+                "outcome is now for the panel to settle, not the creator to erase"
+            )
+        was_open = m["status"] == "OPEN"
+        m["status"] = "VOID"
+        self._save(m)
+        if was_open:
+            self.total_open = u256(max(0, int(self.total_open) - 1))
         return json.dumps(m)
 
     @gl.public.write
