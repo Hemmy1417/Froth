@@ -2,7 +2,7 @@
 
 **Fast, AI-settled sentiment markets on GenLayer.** Anyone can open a market on a real-world question; the crowd prices it in public through parimutuel pools, and a GenLayer validator panel reads the pinned sources and settles the outcome. No external oracle, no house edge on markets, and appeals are handled on-chain.
 
-- **Contract:** `0x978300f03B9D5b05546f3850CF2e098329Aa9b10`
+- **Contract:** `0xA436639b3ed952749c371b5C51bD42c0d7e11F47`
 - **Network:** GenLayer Studionet (chain 61999)
 - **Engine:** the Delphi resolution engine — validator-fetched evidence, bonded appeals, solvency accounting
 
@@ -44,6 +44,9 @@ The net effect: tampering with a pinned source cannot silently steal a pool — 
 - **Ticker-first markets** across categories (`crypto`, `sports`, `culture`, `politics`, `other`)
 - **On-chain trader statistics** — volume, markets entered, wins, and winnings, surfaced as a leaderboard
 - **Live odds** derived from the pool split, with a feed of recent market activity
+- **Probability-over-time chart.** The contract records a pools snapshot after every bet (`get_odds_history`), and each market page draws the implied probability of every side over the sequence of bets — the signature prediction-market view, rendered inline from on-chain data.
+- **Autonomous scheduled close.** A market can carry a real close time (`close_at_epoch`). Betting need never wait on the creator: once the fetched wall-clock proves the time has passed, **anyone** may close it (the same probe-verified consensus clock that enforces the appeal deadline). Creators can still close manually at any point; a market with no schedule stays creator-only.
+- **Discovery.** The feed has keyword search, category tabs, a Live / Resolved / All status filter (settled markets get their own browsable archive), and sort by newest / top volume / closing soon.
 
 ## Advanced features
 

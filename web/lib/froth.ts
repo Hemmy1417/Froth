@@ -28,6 +28,8 @@ export type Market = {
   // contract-enforced appeal deadline (unix epoch; 0 = clock was down at the
   // ruling — the window arms on the first finalize attempt instead)
   appeal_open_until_epoch?: number;
+  // scheduled close (unix epoch; 0 = manual close only). Once past, anyone may close.
+  close_at_epoch?: number;
   resolver: string | null;
   appealed: boolean;
   appellant: string | null;
@@ -202,10 +204,15 @@ async function writeAndWait(client: Client, functionName: string, args: unknown[
 export function createMarket(
   client: Client, ticker: string, category: string, question: string,
   options: string[], sourceUris: string[], criteria: string, feeBps: number,
-  event = "", parentMarketId = "", parentOption = -1,
+  event = "", parentMarketId = "", parentOption = -1, closeAtEpoch = 0,
 ): Promise<string> {
   return writeAndWait(client, "create_market",
-    [ticker, category, question, JSON.stringify(options), JSON.stringify(sourceUris), criteria, feeBps, event, parentMarketId, parentOption]);
+    [ticker, category, question, JSON.stringify(options), JSON.stringify(sourceUris), criteria, feeBps, event, parentMarketId, parentOption, closeAtEpoch]);
+}
+export async function getOddsHistory(marketId: string): Promise<string[][]> {
+  // each entry is a pools snapshot [pool0, pool1, ...] after a bet, oldest first
+  const raw = await read("get_odds_history", [marketId]);
+  return raw ? (JSON.parse(raw) as string[][]) : [];
 }
 export function suggestMarket(client: Client, ticker: string, category: string, hint: string): Promise<string> {
   return writeAndWait(client, "suggest_market", [ticker, category, hint]);

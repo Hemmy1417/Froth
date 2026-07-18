@@ -870,3 +870,68 @@ def test_cancelled_leg_voids_and_refunds_its_parlay(module, contract):
     out = json.loads(contract.claim_parlay(p["id"]))
     assert out["status"] == "VOID"
     assert module.gl._emit.total_to(ALICE) >= GEN     # stake refunded
+
+
+# ── full-build: odds history + autonomous scheduled close ────────────────────
+
+def _mk_at(module, contract, close_at):
+    """Create a market with a scheduled close time (epoch)."""
+    _as(module, CREATOR, 0)
+    raw = contract.create_market("$SCHED", "crypto", "Scheduled close market",
+        json.dumps(["Yes", "No"]), json.dumps([SRC1]), "Settle from source.",
+        0, "", "", -1, close_at)
+    return json.loads(raw)["id"]
+
+
+def test_odds_history_snapshots_every_bet(module, contract):
+    mid = _mk(module, contract)
+    assert json.loads(contract.get_odds_history(mid)) == []      # nothing before a bet
+    _bet(module, contract, mid, ALICE, 0, GEN)                   # YES
+    _bet(module, contract, mid, BOB, 1, GEN)                     # NO
+    _bet(module, contract, mid, CAROL, 0, GEN)                   # YES again
+    h = json.loads(contract.get_odds_history(mid))
+    assert len(h) == 3
+    assert h[0] == [str(GEN), "0"]                               # YES pool only
+    assert h[1] == [str(GEN), str(GEN)]                          # 50/50
+    assert h[2] == [str(2 * GEN), str(GEN)]                      # YES pulls ahead
+    # the series is enough to reconstruct implied probability at each step
+    last = h[-1]
+    total = sum(int(x) for x in last)
+    assert int(last[0]) * 100 // total == 66                     # YES ≈ 66%
+
+
+def test_scheduled_close_creator_may_close_early(module, contract):
+    mid = _mk_at(module, contract, _NOW[0] + 3600)              # scheduled 1h out
+    _as(module, CREATOR, 0)
+    assert json.loads(contract.close_market(mid))["status"] == "CLOSED"
+
+
+def test_scheduled_close_is_permissionless_only_after_the_time(module, contract):
+    mid = _mk_at(module, contract, _NOW[0] + 3600)
+    _as(module, ALICE, 0)                                       # not the creator
+    with pytest.raises(module.gl.vm.UserError, match="scheduled close not reached"):
+        contract.close_market(mid)
+    assert json.loads(contract.get_market(mid))["status"] == "OPEN"
+    _NOW[0] += 3601                                             # real time passes
+    _as(module, ALICE, 0)
+    assert json.loads(contract.close_market(mid))["status"] == "CLOSED"   # anyone closes it now
+
+
+def test_no_schedule_stays_creator_only(module, contract):
+    mid = _mk(module, contract)                                 # close_at 0
+    assert json.loads(contract.get_market(mid))["close_at_epoch"] == 0
+    _as(module, ALICE, 0)
+    with pytest.raises(module.gl.vm.UserError, match="only the creator may close"):
+        contract.close_market(mid)
+
+
+def test_scheduled_close_fails_closed_without_a_trusted_clock(module, contract):
+    mid = _mk_at(module, contract, _NOW[0] + 3600)
+    _NOW[0] += 3601                                             # time HAS passed in truth…
+    _SKEW["blockscout"] = -9999                                 # …but the clock can't be trusted
+    _as(module, ALICE, 0)
+    with pytest.raises(module.gl.vm.UserError, match="no trusted clock"):
+        contract.close_market(mid)
+    _SKEW.clear()
+    _as(module, ALICE, 0)
+    assert json.loads(contract.close_market(mid))["status"] == "CLOSED"   # clock back → closes

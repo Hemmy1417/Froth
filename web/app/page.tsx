@@ -14,6 +14,8 @@ export default function Feed() {
   const [board, setBoard] = useState<Trader[]>([]);
   const [cat, setCat] = useState<string>("all");
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState<"live" | "resolved" | "all">("live");
+  const [sort, setSort] = useState<"new" | "volume" | "closing">("new");
   const [tickerDraft, setTickerDraft] = useState("");
 
   useEffect(() => {
@@ -23,11 +25,19 @@ export default function Feed() {
   }, []);
 
   const shown = useMemo(() => {
+    const TERMINAL = new Set(["SETTLED", "REFUNDING", "VOID"]);
     let out = cat === "all" ? markets : markets.filter((m) => m.category === cat);
+    if (status === "live") out = out.filter((m) => !TERMINAL.has(m.status));
+    else if (status === "resolved") out = out.filter((m) => TERMINAL.has(m.status));
     const needle = q.trim().toLowerCase();
     if (needle) out = out.filter((m) => m.ticker.toLowerCase().includes(needle) || m.question.toLowerCase().includes(needle));
+    out = [...out];
+    const closeKey = (m: Market) => (m.status === "OPEN" && (m.close_at_epoch ?? 0) > 0 ? m.close_at_epoch! : Number.MAX_SAFE_INTEGER);
+    if (sort === "volume") out.sort((a, z) => Number(BigInt(z.total_pool || "0") - BigInt(a.total_pool || "0")));
+    else if (sort === "closing") out.sort((a, z) => closeKey(a) - closeKey(z) || (z.created_seq || 0) - (a.created_seq || 0));
+    else out.sort((a, z) => (z.created_seq || 0) - (a.created_seq || 0));
     return out;
-  }, [markets, cat, q]);
+  }, [markets, cat, q, status, sort]);
   const live = markets.filter((m) => m.status === "OPEN");
 
   function drop() {
@@ -75,14 +85,29 @@ export default function Feed() {
       <div className="grid lg:grid-cols-[1fr_300px] gap-5 items-start">
         {/* feed */}
         <div>
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-3 flex-wrap items-center">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search markets — ticker or question…"
               className="field"
-              style={{ maxWidth: 420 }}
+              style={{ maxWidth: 340, flex: "1 1 200px" }}
             />
+            <div className="scroll-x flex gap-1" style={{ flex: "0 0 auto" }}>
+              {(["live", "resolved", "all"] as const).map((s) => (
+                <button key={s} onClick={() => setStatus(s)}
+                  className={status === s ? "btn" : "btn-ghost"}
+                  style={{ padding: "0.4rem 0.8rem", fontSize: "0.74rem", textTransform: "capitalize", flex: "0 0 auto" }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="field mono"
+              style={{ maxWidth: 150, flex: "0 0 auto", fontSize: "0.74rem", padding: "0.4rem 0.6rem" }}>
+              <option value="new">Newest</option>
+              <option value="volume">Top volume</option>
+              <option value="closing">Closing soon</option>
+            </select>
           </div>
           <div className="scroll-x mb-4">
             <Cat label="All" active={cat === "all"} onClick={() => setCat("all")} />
@@ -93,8 +118,12 @@ export default function Feed() {
 
           {shown.length === 0 ? (
             <div className="card p-10 text-center">
-              <p className="body">No markets here yet.</p>
-              <Link href="/new" className="btn mt-4 inline-flex">Open the first one</Link>
+              <p className="body">
+                {status === "resolved" ? "No settled markets yet — resolved markets land here."
+                  : q.trim() ? "No markets match that search."
+                  : "No markets here yet."}
+              </p>
+              {status !== "resolved" && <Link href="/new" className="btn mt-4 inline-flex">Open the first one</Link>}
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">

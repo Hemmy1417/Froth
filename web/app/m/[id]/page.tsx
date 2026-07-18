@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useWallet } from "@/lib/wallet";
 import { CATEGORY_META, explorerTxUrl } from "@/lib/config";
 import {
-  getMarket, getAppealBond, getTakes, getPositions, bet, unstake, closeMarket, cancelMarket, resolve, appeal, finalize, claim,
+  getMarket, getAppealBond, getTakes, getPositions, getOddsHistory, bet, unstake, closeMarket, cancelMarket, resolve, appeal, finalize, claim,
   postTake, activateConditional, genFromWei, genToWei, shortAddr, odds, type Market, type Take,
 } from "@/lib/froth";
 import { StatusPill, OddsBar } from "@/components/Bits";
@@ -26,6 +26,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [takeDraft, setTakeDraft] = useState("");
   const [myBets, setMyBets] = useState<{ option: number; amount: string }[]>([]);
   const [claimedHere, setClaimedHere] = useState(false);
+  const [oddsHist, setOddsHist] = useState<string[][]>([]);
   const slip = useSlip();
 
   const load = useCallback(async () => {
@@ -34,6 +35,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       setM(mk);
       if (mk && mk.status === "PROPOSED" && !mk.appealed) getAppealBond(id).then(setABond).catch(() => {});
       getTakes(id).then(setTakes).catch(() => {});
+      getOddsHistory(id).then(setOddsHist).catch(() => {});
       if (address) {
         getPositions(address).then((ps: { market_id: string; bets: { option: number; amount: string }[]; claimed: boolean }[]) => {
           const mine = ps.find((p) => p.market_id === id);
@@ -73,6 +75,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
     ? myBets.some((b) => b.option === m.winning_option && BigInt(b.amount) > 0n) : false;
   const refundable = m.status === "REFUNDING" && myTotal > 0n;
   const lostHere = m.status === "SETTLED" && myTotal > 0n && !wonStake;
+  // scheduled close (client clock is advisory; the contract re-fetches the real
+  // clock to enforce it — so the button only ever mirrors what the chain allows)
+  const closeAt = m.close_at_epoch ?? 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const scheduledPast = m.status === "OPEN" && closeAt > 0 && nowSec >= closeAt;
+  const untilClose = closeAt > 0 ? closeAt - nowSec : 0;
 
   return (
     <div className="max-w-3xl mx-auto px-4 lg:px-6 py-7">
@@ -87,11 +95,17 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <h1 className="display" style={{ fontSize: "clamp(22px, 3.2vw, 34px)", lineHeight: 1.1 }}>{m.question}</h1>
       <p className="mono text-xs muted mt-2">
         pool <span className="ink">{genFromWei(m.total_pool)} GEN</span> · creator <Link href={`/u/${m.creator}`} className="link">{shortAddr(m.creator)}</Link>{isCreator ? " (you)" : ""} · fee {(m.fee_bps / 100).toFixed(1)}%
+        {m.status === "OPEN" && closeAt > 0 && (
+          <>{" · "}<span style={{ color: scheduledPast ? "var(--hot)" : "var(--aqua)" }}>
+            {scheduledPast ? "⏰ scheduled close reached — anyone can close it" : `⏱ betting auto-closes in ${fmtUntil(untilClose)}`}
+          </span></>
+        )}
       </p>
 
       {/* odds */}
       <div className="card p-5 mt-5">
         <OddsBar market={m} />
+        <OddsChart history={oddsHist} options={m.options} />
         {/* bet panel */}
         {canBet && (
           <div className="mt-4">
@@ -208,6 +222,15 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       {address && (
         <div className="flex gap-2 flex-wrap mt-5">
           {m.status === "OPEN" && isCreator && <button onClick={() => run("close", () => closeMarket(client, id))} disabled={!!busy} className="btn-ghost">{busy === "close" ? "Closing…" : "Close betting"}</button>}
+          {/* Permissionless scheduled close: once the market's close time has
+              passed, ANYONE (not just the creator) may close it — the contract
+              re-fetches the clock to prove it. We show it only past the time so
+              the button never offers a call the chain would reject. */}
+          {scheduledPast && !isCreator && (
+            <button onClick={() => run("close", () => closeMarket(client, id))} disabled={!!busy} className="btn">
+              {busy === "close" ? "Closing…" : "Close now (scheduled time reached)"}
+            </button>
+          )}
           {/* Creator kill-switch — only while nobody has staked (pool 0) and the
               market is still cancellable. The contract enforces all of this; the
               button just mirrors it so it never offers a call that would revert. */}
@@ -273,6 +296,62 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           {explorerTxUrl(tx) && <a href={explorerTxUrl(tx)} target="_blank" rel="noreferrer" className="link mono text-xs">View ↗</a>}
         </div>
       )}
+    </div>
+  );
+}
+
+// Compact "2d 4h" / "3h 12m" / "45m" countdown from a seconds delta.
+function fmtUntil(sec: number): string {
+  if (sec <= 0) return "now";
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), mm = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${mm}m`;
+  return `${mm}m`;
+}
+
+// Probability-over-time chart, drawn inline (no chart library) from the on-chain
+// odds history: each snapshot is the pools array after a bet; we plot implied
+// probability (pool_i / total) per side across the sequence of bets.
+function OddsChart({ history, options }: { history: string[][]; options: string[] }) {
+  if (!history || history.length < 2) return null;
+  const W = 640, H = 156, padL = 4, padR = 4, padT = 12, padB = 4;
+  const n = history.length;
+  const COLORS = ["var(--yes)", "var(--no)", "var(--aqua)", "var(--hot)", "#a78bfa", "#f59e0b"];
+  const series = options.map((_, o) =>
+    history.map((snap) => {
+      const total = snap.reduce((a, s) => a + Number(s), 0);
+      return total > 0 ? (Number(snap[o] ?? "0") / total) * 100 : 100 / options.length;
+    })
+  );
+  const x = (i: number) => padL + (n === 1 ? 0 : (i / (n - 1)) * (W - padL - padR));
+  const y = (p: number) => padT + (1 - p / 100) * (H - padT - padB);
+  const line = (s: number[]) => s.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="eyebrow">Probability over time</span>
+        <span className="mono text-[0.6rem] muted">{n} snapshot{n === 1 ? "" : "s"} · on-chain</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block" }}>
+        {[0, 50, 100].map((g) => (
+          <g key={g}>
+            <line x1={padL} x2={W - padR} y1={y(g)} y2={y(g)} stroke="var(--line)" strokeWidth={g === 50 ? 1 : 0.5} strokeDasharray={g === 50 ? "3 3" : "0"} />
+            <text x={padL + 2} y={y(g) - 2} fontSize="8" fill="var(--muted)" className="mono">{g}%</text>
+          </g>
+        ))}
+        {series.map((s, o) => (
+          <path key={o} d={line(s)} fill="none" stroke={COLORS[o % COLORS.length]} strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+      </svg>
+      <div className="flex gap-3 flex-wrap mt-1.5">
+        {options.map((opt, o) => (
+          <span key={o} className="mono text-[0.62rem] flex items-center gap-1.5">
+            <span style={{ width: 9, height: 3, borderRadius: 2, background: COLORS[o % COLORS.length], display: "inline-block" }} />
+            <span className="muted">{opt}</span>
+            <span className="ink">{Math.round(series[o][n - 1])}%</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

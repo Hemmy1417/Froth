@@ -19,6 +19,7 @@ function NewMarketInner() {
   const [sources, setSources] = useState<string[]>(["", ""]);
   const [criteria, setCriteria] = useState("");
   const [fee, setFee] = useState("2");
+  const [closeInHours, setCloseInHours] = useState("0");   // 0 = close manually
   const [event, setEvent] = useState("");
   const [parentId, setParentId] = useState("");
   const [parentOpt, setParentOpt] = useState("0");
@@ -72,8 +73,10 @@ function NewMarketInner() {
     try {
       const feeBps = Math.round(Number(fee) * 100);
       const parent = advanced ? parentId.trim() : "";
+      const hrs = Number(closeInHours);
+      const closeAt = hrs > 0 ? Math.floor(Date.now() / 1000) + Math.round(hrs * 3600) : 0;
       await createMarket(client, ticker.trim(), category, question.trim(), [yes.trim(), no.trim()], src, criteria.trim(), feeBps,
-        advanced ? event.trim() : "", parent, parent ? Number(parentOpt) : -1);
+        advanced ? event.trim() : "", parent, parent ? Number(parentOpt) : -1, closeAt);
       router.push("/");
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
@@ -143,9 +146,26 @@ function NewMarketInner() {
         <Field label="Settlement criteria">
           <textarea value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={2} placeholder="YES if the sources show BTC traded above $100,000 before Sunday 00:00 UTC." className="field text-sm" />
         </Field>
-        <Field label="Creator fee (%)">
-          <input value={fee} onChange={(e) => setFee(e.target.value)} inputMode="decimal" className="field mono" style={{ maxWidth: 100 }} />
-        </Field>
+        <div className="flex gap-4 flex-wrap">
+          <Field label="Creator fee (%)">
+            <input value={fee} onChange={(e) => setFee(e.target.value)} inputMode="decimal" className="field mono" style={{ maxWidth: 100 }} />
+          </Field>
+          <Field label="Betting closes">
+            <select value={closeInHours} onChange={(e) => setCloseInHours(e.target.value)} className="field mono" style={{ maxWidth: 190 }}>
+              <option value="0">Manually (I&apos;ll close it)</option>
+              <option value="1">In 1 hour</option>
+              <option value="6">In 6 hours</option>
+              <option value="24">In 1 day</option>
+              <option value="72">In 3 days</option>
+              <option value="168">In 1 week</option>
+            </select>
+          </Field>
+        </div>
+        {Number(closeInHours) > 0 && (
+          <p className="mono text-[0.62rem] muted" style={{ marginTop: -8 }}>
+            Betting auto-closes on schedule — once the time passes, anyone can close it (the contract proves the time with a fetched clock). No need to babysit it.
+          </p>
+        )}
 
         <button onClick={() => setAdvanced((a) => !a)} className="btn-link" style={{ alignSelf: "flex-start" }}>
           {advanced ? "− hide" : "+ event / conditional"}

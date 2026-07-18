@@ -1,4 +1,4 @@
-# v0.4.0
+# v0.5.0
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 # Froth — fast, AI-settled sentiment markets on GenLayer.
@@ -222,6 +222,11 @@ class Froth(gl.Contract):
     parlays: TreeMap[str, str]
     addr_parlays: TreeMap[str, str]
     drafts: TreeMap[str, str]      # addr -> last AI-drafted market JSON
+    # odds history: a pools snapshot recorded after every bet, so the market
+    # page can chart probability over time. Flat sequential keys with a per-market
+    # counter → O(1) append (never reserialise a growing list into the market).
+    odds_hist: TreeMap[str, str]   # "{market_id}:{i}" -> JSON [pool0, pool1, ...]
+    odds_len: TreeMap[str, str]    # market_id -> snapshot count (str int)
 
     def __init__(self, owner: Address) -> None:
         # Deploy tooling may hand the owner in as a plain hex string (genlayer-js
@@ -257,8 +262,17 @@ class Froth(gl.Contract):
         self.parlays = TreeMap()
         self.addr_parlays = TreeMap()
         self.drafts = TreeMap()
+        self.odds_hist = TreeMap()
+        self.odds_len = TreeMap()
 
     # -------------------------------------------------------- helpers
+    def _record_odds(self, market_id: str, pools: list) -> None:
+        """Append a pools snapshot for the odds-over-time chart. O(1): a flat
+        key per snapshot plus a per-market counter — the market JSON never grows."""
+        i = int(self.odds_len.get(market_id, "0"))
+        self.odds_hist[f"{market_id}:{i}"] = json.dumps([str(int(p)) for p in pools])
+        self.odds_len[market_id] = str(i + 1)
+
     def _only_owner(self) -> None:
         o = str(self.owner or "").strip().lower()
         s = str(gl.message.sender_address or "").strip().lower()
@@ -404,7 +418,8 @@ class Froth(gl.Contract):
     @gl.public.write
     def create_market(self, ticker: str, category: str, question: str, options_json: str,
                       source_uris_json: str, criteria: str, fee_bps: int,
-                      event: str = "", parent_market_id: str = "", parent_option: int = -1) -> str:
+                      event: str = "", parent_market_id: str = "", parent_option: int = -1,
+                      close_at_epoch: int = 0) -> str:
         creator = str(gl.message.sender_address)
         tick = ticker.strip()[:32]
         cat = category.strip().lower()
@@ -460,6 +475,10 @@ class Froth(gl.Contract):
             "resolver": None, "appealed": False, "appellant": None,
             "appeal_bond": "0", "appeal_flipped": False,
             "parent_market_id": parent, "parent_option": popt, "created_seq": seq,
+            # optional scheduled close: 0 = manual only (creator closes when ready).
+            # If set, ANYONE may close the market once the fetched clock proves the
+            # time has passed — betting need never wait on the creator.
+            "close_at_epoch": max(0, int(close_at_epoch)),
         }
         self._save(market)
         self.market_index[str(seq)] = mid
@@ -528,6 +547,7 @@ class Froth(gl.Contract):
         m["pools"][idx] = str(int(m["pools"][idx]) + amount)
         m["total_pool"] = str(int(m["total_pool"]) + amount)
         self._save(m)
+        self._record_odds(market_id, m["pools"])   # snapshot for the odds chart
 
         okey = f"{market_id}:{sender}"
         opts = json.loads(self.staker_options.get(okey, "[]"))
@@ -770,10 +790,33 @@ class Froth(gl.Contract):
     @gl.public.write
     def close_market(self, market_id: str) -> str:
         m = self._get(market_id)
-        if str(gl.message.sender_address).lower() != m["creator"].lower():
-            raise gl.vm.UserError("only the creator may close this market")
         if m["status"] != "OPEN":
             raise gl.vm.UserError("market is not open")
+        sender = str(gl.message.sender_address).lower()
+        is_creator = sender == m["creator"].lower()
+
+        # The creator may close any time. Anyone ELSE may close ONLY once the
+        # market's scheduled close time has genuinely passed — proven by a fresh
+        # consensus clock-fetch, so betting closes on schedule without waiting on
+        # the creator, and no one can close a market early. Fails closed: no
+        # trusted clock → no permissionless close.
+        if not is_creator:
+            close_at = int(m.get("close_at_epoch", 0))
+            if close_at <= 0:
+                raise gl.vm.UserError(
+                    "only the creator may close this market (it has no scheduled close time)"
+                )
+            now = self._utc_now()
+            if now == 0:
+                raise gl.vm.UserError(
+                    "no trusted clock right now — cannot prove the scheduled close "
+                    "time has passed; try again shortly"
+                )
+            if now < close_at:
+                raise gl.vm.UserError(
+                    f"scheduled close not reached — {close_at - now}s of real time remain"
+                )
+
         m["status"] = "CLOSED"
         self._save(m)
         self.total_open = u256(max(0, int(self.total_open) - 1))
@@ -1001,6 +1044,20 @@ class Froth(gl.Contract):
     @gl.public.view
     def get_market(self, market_id: str) -> str:
         return self.markets.get(market_id, "")
+
+    @gl.public.view
+    def get_odds_history(self, market_id: str) -> str:
+        """Every pools snapshot recorded since the market opened, oldest first —
+        the raw series the market page charts as probability over time. Each entry
+        is the pools array [pool0, pool1, ...] after that bet; implied % per side
+        = pool_i / sum(pools)."""
+        n = int(self.odds_len.get(market_id, "0"))
+        out = []
+        for i in range(n):
+            raw = self.odds_hist.get(f"{market_id}:{i}", "")
+            if raw:
+                out.append(json.loads(raw))
+        return json.dumps(out)
 
     @gl.public.view
     def get_takes(self, market_id: str) -> str:
