@@ -41,6 +41,10 @@
 
 * { box-sizing: border-box; }
 
+/* Base type scale. Everything below is in rem, so this one knob sizes the whole
+   app; 112.5% = an 18px root (up from the 16px default) for a more readable UI. */
+html { font-size: 112.5%; }
+
 html, body {
   margin: 0; padding: 0;
   background: var(--bg);
@@ -123,7 +127,7 @@ textarea.field { resize: vertical; min-height: 4.5rem; }
 .prob-row { display: flex; align-items: center; gap: 0.6rem; }
 .prob-track { flex: 1; height: 7px; border-radius: 999px; background: var(--s3); overflow: hidden; }
 .prob-fill { display: block; height: 100%; border-radius: 999px; transition: width .5s cubic-bezier(.4,0,.2,1); }
-.prob-pct { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.86rem; width: 44px; text-align: right; color: var(--ink); }
+.prob-pct { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.86rem; width: 4ch; text-align: right; color: var(--ink); }
 
 /* ── the board strip (static — the tape does not crawl here) ────────────── */
 .tape { border-bottom: 1px solid var(--line); background: var(--bg); overflow-x: auto; scrollbar-width: none; }
