@@ -2,7 +2,7 @@
 
 **Fast, AI-settled sentiment markets on GenLayer.** Anyone can open a market on a real-world question; the crowd prices it in public through parimutuel pools, and a GenLayer validator panel reads the pinned sources and settles the outcome. No external oracle, no house edge on markets, and appeals are handled on-chain.
 
-- **Contract:** `0xE62f47B248bedA342C3863f39eedABEf410CfC4b`
+- **Contract:** `0xEb09e04ebb27215749E1F2290BC6F229D2dD6Dbd`
 - **Network:** GenLayer Studionet (chain 61999)
 - **Engine:** the Delphi resolution engine — validator-fetched evidence, bonded appeals, solvency accounting
 

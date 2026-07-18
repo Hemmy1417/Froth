@@ -168,10 +168,13 @@ Respond ONLY with: {{"winning_option":0,"confidence":"LOW","reasons":["..."]}}""
 
 
 _CASE_PRINCIPLE = (
-    "Outputs are JSON with an epoch and a brief. They are equivalent if the epochs are "
-    "within 300 seconds (0 allowed if the clock was unreachable) and the briefs' "
-    "implied_yes_pct values are within 20 points with the same confidence level, even if "
-    "the wording of summaries, arguments, and findings differs."
+    "Each output is JSON with an integer 'epoch' and a 'brief'. Two outputs are EQUIVALENT when "
+    "BOTH hold: (1) the epochs are within 300 seconds of each other — a value of 0 means the clock "
+    "was unreachable and matches any epoch; and (2) the two briefs lean the SAME way on "
+    "brief.implied_yes_pct — both above 55, or both below 45, or both within 45..55 (a toss-up). "
+    "Differences in the exact probability, the confidence label, and the wording of the summary, "
+    "per-source findings, and arguments do NOT break equivalence — a case file records agreement on "
+    "which way the evidence points, not on a precise number."
 )
 
 
